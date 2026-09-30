@@ -473,6 +473,84 @@ function fracMix(rng) {
   throw new Error('fracMix');
 }
 
+// 分数混合运算 (六上·二 分数混合运算(一)(二), the two lessons merged): five
+// shapes — integer×frac×frac, ÷ chains turned into multiply-by-the-reciprocal,
+// brackets, integer×(1±frac) and the distributive law. Fraction numerators and
+// denominators stay ≤ 21, integers ≤ 140; every result is positive, in lowest
+// terms, and fits the fraction / mixed-number input. One shape per block, the
+// way dec3Four does it: the draws differ a lot in how often they succeed.
+function fracChain(rng) {
+  const r = R(rng);
+  // A value is [n, d], kept reduced; fmtF is for hints, ansOf for the answer.
+  const fmtF = ([n, d]) => (d === 1 ? String(n) : n > d ? `${Math.floor(n / d)}又${n % d}/${d}` : `${n}/${d}`);
+  const ansOf = ([n, d]) => (d === 1 ? { tok: { ans: n }, text: String(n) } : (() => { const f = fracAns(n, d, true); return { tok: f, text: f.text }; })());
+  const proper = (dMax) => { const d = r(2, dMax); const n = r(1, d - 1); return gcd(n, d) === 1 ? [n, d] : null; };
+  for (let block = 0; block < 25; block += 1) {
+    const form = r(0, 4); // 每块随机定形态，命中率差别大的形态才不会被第一种独占
+    for (let g = 0; g < 200; g += 1) {
+      let out = null;
+      if (form === 0) { // 整数×分数×分数 (12×1/3×3/4)
+        const A = r(2, 140);
+        const f1 = proper(12); const f2 = proper(12); if (!f1 || !f2) continue;
+        const [rn, rd] = reduce(A * f1[0] * f2[0], f1[1] * f2[1]);
+        if (rn > 999 || rd > 99) continue;
+        out = { toks: [{ n: A }, { op: '×' }, fracTok(...f1), { op: '×' }, fracTok(...f2)], text: `${A} × ${f1[0]}/${f1[1]} × ${f2[0]}/${f2[1]}`, help: `先算 ${A} × ${f1[0]}/${f1[1]} ＝ ${fmtF(reduce(A * f1[0], f1[1]))}`, val: [rn, rd] };
+      } else if (form === 1) { // 除法混合，转乘倒数 (12÷4/5÷3/8、3/8÷1/10×5/7)
+        if (rng() < 0.5) {
+          const A = r(2, 140);
+          const f1 = proper(12); const f2 = proper(12); if (!f1 || !f2) continue;
+          const [rn, rd] = reduce(A * f1[1] * f2[1], f1[0] * f2[0]);
+          if (rn > 999 || rd > 99) continue;
+          out = { toks: [{ n: A }, { op: '÷' }, fracTok(...f1), { op: '÷' }, fracTok(...f2)], text: `${A} ÷ ${f1[0]}/${f1[1]} ÷ ${f2[0]}/${f2[1]}`, help: `把 ${f1[0]}/${f1[1]}、${f2[0]}/${f2[1]} 颠倒过来再乘`, val: [rn, rd] };
+        } else {
+          const f1 = proper(21); const f2 = proper(21); const f3 = proper(12); if (!f1 || !f2 || !f3) continue;
+          const [rn, rd] = reduce(f1[0] * f2[1] * f3[0], f1[1] * f2[0] * f3[1]);
+          if (rn > 999 || rd > 99) continue;
+          out = { toks: [fracTok(...f1), { op: '÷' }, fracTok(...f2), { op: '×' }, fracTok(...f3)], text: `${f1[0]}/${f1[1]} ÷ ${f2[0]}/${f2[1]} × ${f3[0]}/${f3[1]}`, help: `把 ${f2[0]}/${f2[1]} 颠倒过来再乘`, val: [rn, rd] };
+        }
+      } else if (form === 2) { // 带括号 (4/7×(5/8÷5/14)、2÷(2/5×1/4))
+        if (rng() < 0.5) {
+          const f1 = proper(12); const f2 = proper(21); const f3 = proper(21); if (!f1 || !f2 || !f3) continue;
+          const inner = reduce(f2[0] * f3[1], f2[1] * f3[0]); // f2 ÷ f3
+          const [rn, rd] = reduce(f1[0] * inner[0], f1[1] * inner[1]);
+          if (rn > 999 || rd > 99) continue;
+          out = { toks: [fracTok(...f1), { op: '×' }, { op: '(' }, fracTok(...f2), { op: '÷' }, fracTok(...f3), { op: ')' }], text: `${f1[0]}/${f1[1]} × (${f2[0]}/${f2[1]} ÷ ${f3[0]}/${f3[1]})`, help: `先算括号里的 ${f2[0]}/${f2[1]} ÷ ${f3[0]}/${f3[1]}`, val: [rn, rd] };
+        } else {
+          const A = r(2, 140);
+          const f1 = proper(12); const f2 = proper(12); if (!f1 || !f2) continue;
+          const inner = reduce(f1[0] * f2[0], f1[1] * f2[1]);
+          const [rn, rd] = reduce(A * inner[1], inner[0]); // A ÷ inner
+          if (rn > 999 || rd > 99) continue;
+          out = { toks: [{ n: A }, { op: '÷' }, { op: '(' }, fracTok(...f1), { op: '×' }, fracTok(...f2), { op: ')' }], text: `${A} ÷ (${f1[0]}/${f1[1]} × ${f2[0]}/${f2[1]})`, help: `先算括号里的 ${f1[0]}/${f1[1]} × ${f2[0]}/${f2[1]} ＝ ${fmtF(inner)}`, val: [rn, rd] };
+        }
+      } else if (form === 3) { // 整数×(1±分数) (50×(1+1/5)＝60)
+        const f = proper(12); if (!f) continue;
+        const k = r(2, 10); const A = f[1] * k; if (A > 140) continue;
+        const plus = rng() < 0.5;
+        const rn = k * (plus ? f[1] + f[0] : f[1] - f[0]);
+        out = { toks: [{ n: A }, { op: '×' }, { op: '(' }, { n: 1 }, { op: plus ? '＋' : '−' }, fracTok(...f), { op: ')' }], text: `${A} × (1${plus ? '＋' : '−'}${f[0]}/${f[1]})`, help: `先算 1 ${plus ? '＋' : '−'} ${f[0]}/${f[1]}`, val: [rn, 1] };
+      } else if (rng() < 0.5) { // 分配律：(6/7＋8/21)×21
+        const d1 = r(2, 9); const d2 = r(2, 9); if (d1 === d2) continue;
+        const L = lcm(d1, d2); if (L > 42) continue;
+        const n1 = r(1, d1 - 1); const n2 = r(1, d2 - 1);
+        if (gcd(n1, d1) !== 1 || gcd(n2, d2) !== 1) continue;
+        const kk = r(1, 6); const A = L * kk; if (A > 140) continue;
+        const S = n1 * (L / d1) + n2 * (L / d2);
+        out = { toks: [{ op: '(' }, fracTok(n1, d1), { op: '＋' }, fracTok(n2, d2), { op: ')' }, { op: '×' }, { n: A }], text: `(${n1}/${d1} ＋ ${n2}/${d2}) × ${A}`, help: `先算 ${n1}/${d1} ＋ ${n2}/${d2} ＝ ${fmtF(reduce(S, L))}`, val: [S * kk, 1] };
+      } else { // 分配律：5/6×17＋1/6×17，两个分数凑成 1
+        const d = r(2, 12); const n1 = r(1, d - 1); if (gcd(n1, d) !== 1) continue; const n2 = d - n1;
+        const A = r(2, 99);
+        out = { toks: [fracTok(n1, d), { op: '×' }, { n: A }, { op: '＋' }, fracTok(n2, d), { op: '×' }, { n: A }], text: `${n1}/${d} × ${A} ＋ ${n2}/${d} × ${A}`, help: `先算 ${n1}/${d} ＋ ${n2}/${d} ＝ 1`, val: [A, 1] };
+      }
+      const a = ansOf(out.val);
+      const grid = buildH([...out.toks, { op: '＝' }, a.tok], { title: '分数混合', text: out.text, answer: a.text, help: out.help });
+      if (grid.cols > 16) continue;
+      return grid;
+    }
+  }
+  throw new Error('fracChain');
+}
+
 const GEN = {
   compose(rng, { total }) {
     const a = R(rng)(1, total - 1);
@@ -977,13 +1055,82 @@ const GEN = {
   // Solving equations (解方程 of the textbook): the equation with x＝… on a
   // second row, as in `letter`. One step: x±a＝b, a＋x＝b, x×a＝b, x÷a＝b,
   // plus a one-decimal sub-form (x−12.3＝3.8). Two steps: a×x±b＝c, a＋b×x＝c.
+  // With `frac` (grade 6) the coefficient carries a fraction, a percent or a
+  // one-decimal number; the coefficient is drawn first and x is built back, so
+  // x stays a positive integer (x−1/7x=12、60%x=30、55%x−45%x=620、x−0.8x=22).
   // Answers are positive; equations with a decimal divisor are out of scope
   // (decimal division sits in grade 5).
-  eq(rng, { twoStep }) {
+  eq(rng, { twoStep, frac } = {}) {
     const r = R(rng);
     for (let g = 0; g < 400; g++) {
-      let toks; let x; let help;
-      if (!twoStep) {
+      let toks; let x; let help; let text;
+      if (frac) {
+        const form = r(0, 6);
+        if (form === 0) { // x−(a/b)x＝C
+          const d = r(2, 9); const a = r(1, d - 1); if (gcd(a, d) !== 1) continue;
+          const k = r(2, 20); x = d * k;
+          const C = k * (d - a);
+          toks = [{ n: 'x' }, { op: '−' }, fracTok(a, d), { n: 'x' }, { op: '＝' }, { n: C }];
+          text = `x−${a}/${d}x＝${C}`; help = `1 − ${a}/${d} ＝ ${d - a}/${d}`;
+        } else if (form === 1) { // (a/b)x＋(c/d)x＝C
+          const d1 = r(2, 9); const a = r(1, d1 - 1); if (gcd(a, d1) !== 1) continue;
+          const d2 = r(2, 9); const c = r(1, d2 - 1); if (gcd(c, d2) !== 1) continue;
+          const L = lcm(d1, d2); if (L > 36) continue;
+          const kk = r(1, 12); x = L * kk;
+          const S = a * (L / d1) + c * (L / d2);
+          const C = S * kk; if (C > 999) continue;
+          const [rn, rd] = reduce(S, L);
+          toks = [fracTok(a, d1), { n: 'x' }, { op: '＋' }, fracTok(c, d2), { n: 'x' }, { op: '＝' }, { n: C }];
+          text = `${a}/${d1}x＋${c}/${d2}x＝${C}`; help = `${a}/${d1} ＋ ${c}/${d2} ＝ ${rd === 1 ? rn : `${rn}/${rd}`}`;
+        } else if (form === 2) { // a＋(b/c)x＝C
+          const c = r(2, 9); const b = r(1, c - 1); if (gcd(b, c) !== 1) continue;
+          const A = r(2, 50); const kk = r(2, 20); x = c * kk;
+          const C = A + b * kk; if (C > 999) continue;
+          toks = [{ n: A }, { op: '＋' }, fracTok(b, c), { n: 'x' }, { op: '＝' }, { n: C }];
+          text = `${A}＋${b}/${c}x＝${C}`; help = `两边先同时减 ${A}，再乘 ${c}/${b}`;
+        } else if (form === 3) { // p%x＝C (60%x=30)
+          const p = pickOf(rng, [5, 10, 15, 20, 25, 30, 40, 50, 60, 75, 80, 90]);
+          const g2 = gcd(p, 100); const s = 100 / g2;
+          const kmax = Math.min(Math.floor(999 * g2 / p), Math.floor(9990 / s));
+          if (kmax < 2) continue;
+          const kk = r(2, kmax); x = s * kk;
+          const C = (kk * p) / g2;
+          toks = [{ n: p }, { op: '%' }, { n: 'x' }, { op: '＝' }, { n: C }];
+          text = `${p}%x＝${C}`; help = `${p}% ＝ ${decMin(p, 2)}`;
+        } else if (form === 4) { // x±p%x＝C，含 12.5% 一类 (x+12.5%x=18)
+          const v = rng() < 0.5 ? pickOf(rng, [125, 375, 625, 875]) : pickOf(rng, [5, 10, 20, 25, 40, 50, 75]);
+          const [num, den] = reduce(v, 1000);
+          const plus = rng() < 0.5;
+          const den2 = plus ? den + num : den - num;
+          const hi = Math.min(Math.floor(9990 / den), Math.floor(999 / den2));
+          if (hi < 1) continue;
+          const kk = r(1, hi); x = den * kk;
+          const C = kk * den2;
+          const ps = decMin(v, 1);
+          toks = [{ n: 'x' }, { op: plus ? '＋' : '−' }, { n: ps }, { op: '%' }, { n: 'x' }, { op: '＝' }, { n: C }];
+          text = `x${plus ? '＋' : '−'}${ps}%x＝${C}`; help = `${ps}% ＝ ${num}/${den}`;
+        } else if (form === 5) { // p%x−q%x＝C (55%x−45%x=620)
+          const p = pickOf(rng, [10, 15, 20, 25, 30, 40, 45, 50, 55, 60, 70, 75, 80, 90]);
+          const q = pickOf(rng, [5, 10, 15, 20, 25, 30, 35, 40, 45, 50, 60, 65, 70, 80]);
+          if (p <= q) continue;
+          const df = p - q; const g2 = gcd(df, 100); const s = 100 / g2;
+          const kmax = Math.min(Math.floor(9990 / s), Math.floor(999 * g2 / df));
+          if (kmax < 2) continue;
+          const kk = r(2, kmax); x = s * kk;
+          const C = (kk * df) / g2;
+          toks = [{ n: p }, { op: '%' }, { n: 'x' }, { op: '−' }, { n: q }, { op: '%' }, { n: 'x' }, { op: '＝' }, { n: C }];
+          text = `${p}%x−${q}%x＝${C}`; help = `${p}% − ${q}% ＝ ${df}%`;
+        } else { // x−0.8x 型小数系数 (x−0.8x=22)
+          const v = r(2, 9);
+          const sub = 10 - v; const g2 = gcd(sub, 10); const s = 10 / g2;
+          const kmax = Math.min(Math.floor(9990 / s), Math.floor(999 * g2 / sub));
+          if (kmax < 2) continue;
+          const kk = r(2, kmax); x = s * kk;
+          const C = (kk * sub) / g2;
+          toks = [{ n: 'x' }, { op: '−' }, { n: decStr(v, 1) }, { n: 'x' }, { op: '＝' }, { n: C }];
+          text = `x−${decStr(v, 1)}x＝${C}`; help = `1 − ${decStr(v, 1)} ＝ ${decMin(sub, 1)}`;
+        }
+      } else if (!twoStep) {
         const form = r(0, 5);
         if (form === 0) {
           const a = r(2, 50); const u = r(2, 50);
@@ -1022,7 +1169,7 @@ const GEN = {
           toks = [{ n: b }, { op: '＋' }, { n: a }, { op: '×' }, { n: 'x' }, { op: '＝' }, { n: p + b }]; help = `两边先同时减 ${b}，再同时除以 ${a}`;
         }
       }
-      const grid = buildH([...toks, { br: true }, { n: 'x' }, { op: '＝' }, { ans: x }], { title: '解方程', text: toks.map((t) => t.n ?? t.op).join(''), answer: String(x), help });
+      const grid = buildH([...toks, { br: true }, { n: 'x' }, { op: '＝' }, { ans: x }], { title: '解方程', text: text || toks.map((t) => t.n ?? t.op).join(''), answer: String(x), help });
       if (grid.cols > 16) continue;
       return grid;
     }
@@ -1089,8 +1236,111 @@ const GEN = {
     if (grid.cols > 16) return GEN.rewrite(rng);
     return grid;
   },
-  percent(rng) {
+  percent(rng, { mode } = {}) {
     const r = R(rng);
+    // 百分数互化 (六上·四 合格率 / 营养含量、六下·总复习 书69): four directions,
+    // about a quarter each. Conversions that divide evenly stay exact; 1/6-type
+    // fractions keep one decimal as the textbook prints it (1/6≈16.7%).
+    if (mode === 'conv') {
+      for (let g = 0; g < 600; g++) {
+        const form = r(0, 3);
+        if (form === 0) { // 小数 → 百分数 (0.24 → 24%)
+          const k = r(1, 999);
+          return buildH([{ n: decMin(k, 2) }, { op: '＝' }, { ans: k }, { op: '%' }], { title: '百分数', text: decMin(k, 2), answer: String(k), help: '小数点向右移两位' });
+        }
+        if (form === 1) { // 分数 → 百分数 (3/4 → 75%、1/6 → ≈16.7%)
+          const d = r(2, 20); const n = r(1, d - 1); if (gcd(n, d) !== 1) continue;
+          const t = (n * 1000) / d;
+          let eq; let ans;
+          if (Number.isInteger(t)) { eq = '＝'; ans = decMin(t, 1); } else {
+            const v = Math.round(t); if (v % 10 === 0) continue;
+            eq = '≈'; ans = decStr(v, 1);
+          }
+          return buildH([fracTok(n, d), { op: eq }, { ans }, { op: '%' }], { title: '百分数', text: `${n}/${d}`, answer: ans, help: eq === '＝' ? `分母是 ${d}` : '除不尽，保留一位小数' });
+        }
+        if (form === 2) { // 百分数 → 小数 (37% → 0.37)
+          const k = r(1, 999);
+          return buildH([{ n: k }, { op: '%' }, { op: '＝' }, { ans: decMin(k, 2) }], { title: '百分数', text: `${k}%`, answer: decMin(k, 2), help: '小数点向左移两位' });
+        }
+        // 百分数 → 分数 (62.5% → 5/8)：先抽最简真分数再反算百分数，约分后 ≤20
+        const d = pickOf(rng, [2, 4, 5, 8, 10, 20]);
+        const ns = []; for (let n = 1; n < d; n++) if (gcd(n, d) === 1) ns.push(n);
+        const n = pickOf(rng, ns);
+        const v = (1000 * n) / d;
+        return buildH([{ n: decMin(v, 1) }, { op: '%' }, { op: '＝' }, { fa: [n, d] }], { title: '百分数', text: `${decMin(v, 1)}%`, answer: `${n}/${d}`, help: `分母是 100` });
+      }
+      throw new Error('percent conv');
+    }
+    // 求百分率 (六上·四 合格率、六上·七 百分数的应用(一)、这月我当家的除法
+    // 方向，三处同构): ① a÷b＝( )%；② (a−b)÷b＝( )%；③ a÷p%＝( ) 求总量。
+    // The percent is exact when it fits the digits, else rounded to one decimal
+    // (书41), never above 200%.
+    if (mode === 'rate') {
+      for (let g = 0; g < 600; g++) {
+        const form = r(0, 2);
+        if (form === 2) { // a÷p%＝( )，已知部分和百分率求总量 (500÷40%=1250)
+          const p = pickOf(rng, [5, 10, 20, 25, 40, 50, 60, 75, 80]);
+          const g2 = gcd(p, 100); const s = 100 / g2;
+          const kmax = Math.min(Math.floor(2000 / s), Math.floor(999 * g2 / p));
+          if (kmax < 1) continue;
+          const kk = r(1, kmax);
+          const R = s * kk; const a = (kk * p) / g2;
+          return buildH([{ n: a }, { op: '÷' }, { n: p }, { op: '%' }, { op: '＝' }, { ans: R }], { title: '百分率', text: `${a} ÷ ${p}%`, answer: String(R), help: `${a} ÷ ${decMin(p, 2)}` });
+        }
+        // ①② share the percent computation: exact, else one rounded decimal.
+        let num0; let den; let toks; let text;
+        if (form === 0) { // a÷b＝( )% (43÷50=86%、52÷60≈86.7%)
+          den = r(2, 200); num0 = r(1, 2 * den); if (num0 > 999 || num0 === den) continue;
+          toks = [{ n: num0 }, { op: '÷' }, { n: den }]; text = `${num0}÷${den}`;
+        } else if (rng() < 0.15) {
+          // 「少」方向的三位数总量窄形态：三位数被减数只有整数百分率排得进
+          // 16 列（(400−40)÷400＝90% 一类；(400−10)÷400＝97.5% 为 18 列，版式不出）
+          if (rng() < 0.5) { den = 100; num0 = r(92, 99); } else { den = 50 * r(2, 9); num0 = (den / 50) * 49; }
+          const part = den - num0;
+          toks = [{ op: '(' }, { n: den }, { op: '−' }, { n: part }, { op: ')' }, { op: '÷' }, { n: den }];
+          text = `(${den}−${part})÷${den}`;
+        } else if (rng() < 0.5) { // 「少」方向：(a−b)÷a，总量作分母（练一练 (24−18)÷24）
+          den = r(2, 99); const part = r(1, den - 1);
+          num0 = den - part;
+          toks = [{ op: '(' }, { n: den }, { op: '−' }, { n: part }, { op: ')' }, { op: '÷' }, { n: den }];
+          text = `(${den}−${part})÷${den}`;
+        } else { // 「多」方向：(a−b)÷b，较小数作分母、被减数大于除数（书87 (50−45)÷45≈11.1%）
+          den = r(2, 99); const big = r(den + 1, 3 * den - 1);
+          num0 = big - den;
+          toks = [{ op: '(' }, { n: big }, { op: '−' }, { n: den }, { op: ')' }, { op: '÷' }, { n: den }];
+          text = `(${big}−${den})÷${den}`;
+        }
+        const u = (num0 * 1000) / den;
+        let eq; let ans;
+        if (Number.isInteger(u)) { eq = '＝'; ans = decMin(u, 1); } else {
+          const v = Math.round(u); if (v % 10 === 0) continue;
+          eq = '≈'; ans = decStr(v, 1);
+        }
+        const grid = buildH([...toks, { op: eq }, { ans }, { op: '%' }], { title: '百分率', text, answer: ans, help: `${num0} × 100 ÷ ${den}` });
+        if (grid.cols > 16) continue;
+        return grid;
+      }
+      throw new Error('percent rate');
+    }
+    // 多（少）百分之几的数 (六上·七 百分数的应用(二)): a×(1±p%), a 10–1000 and
+    // the answer a positive integer ≤ 2000 (180×(1+50%)=270、1000×(1−10%)=900).
+    if (mode === 'more') {
+      for (let g = 0; g < 400; g++) {
+        const p = pickOf(rng, [5, 10, 15, 20, 25, 30, 40, 50, 60, 75]);
+        const plus = rng() < 0.5;
+        const s = 100 / gcd(p, 100);
+        const hi = Math.min(Math.floor(1000 / s), Math.floor((2000 * 100) / (s * (100 + p))));
+        const lo = Math.max(1, Math.ceil(10 / s));
+        if (lo > hi) continue;
+        const k = r(lo, hi);
+        const a = s * k;
+        const ans = (a * (100 + (plus ? p : -p))) / 100;
+        const grid = buildH([{ n: a }, { op: '×' }, { op: '(' }, { n: 1 }, { op: plus ? '＋' : '−' }, { n: p }, { op: '%' }, { op: ')' }, { op: '＝' }, { ans }], { title: '百分数', text: `${a} × (1${plus ? '＋' : '−'}${p}%)`, answer: String(ans), help: `${a} × ${decMin(100 + (plus ? p : -p), 2)}` });
+        if (grid.cols > 16) continue;
+        return grid;
+      }
+      throw new Error('percent more');
+    }
     for (let g = 0; g < 200; g++) {
       const base = pickOf(rng, [20, 40, 50, 60, 80, 100, 200, 300, 400, 500]); const p = pickOf(rng, [5, 10, 20, 25, 30, 40, 50, 60, 75]);
       const ans = (base * p) / 100; if (!Number.isInteger(ans) || ans === 0) continue;
@@ -1098,13 +1348,106 @@ const GEN = {
     }
     throw new Error('percent');
   },
-  ratio(rng) {
+  ratio(rng, { ext, mode } = {}) {
     const r = R(rng);
-    const a = r(1, 9); const b = r(1, 9); if (a === b) return GEN.ratio(rng);
-    const [x, y] = reduce(a, b); const k = r(2, 9);
-    const hideLeft = rng() < 0.5;
-    const toks = hideLeft ? [{ n: x }, { op: '：' }, { n: y }, { op: '＝' }, { ans: x * k }, { op: '：' }, { n: y * k }] : [{ n: x }, { op: '：' }, { n: y }, { op: '＝' }, { n: x * k }, { op: '：' }, { ans: y * k }];
-    return buildH(toks, { title: '比', text: `${x}:${y}`, answer: String(hideLeft ? x * k : y * k), help: `${k}倍` });
+    // 求比值 (六上·六 生活中的比): a:b＝( ), a、b 1–99 且不同. Integer quotient
+    // when it divides, a one-decimal quotient drawn back into the antecedent,
+    // otherwise the lowest-terms fraction — repeating quotients are answered as
+    // fractions, with no redraw (same 口径 as 分数与除法).
+    if (mode === 'quo') {
+      const w = rng();
+      if (w < 0.4) { // 整除 → 整数 (40:2=20)
+        const q = r(2, 49); const b = r(1, Math.floor(99 / q)); const a = b * q;
+        return buildH([{ n: a }, { op: '：' }, { n: b }, { op: '＝' }, { ans: q }], { title: '求比值', text: `${a}:${b}`, answer: String(q), help: `${a} ÷ ${b}` });
+      }
+      if (w < 0.7) { // 先抽一位小数商，反算前项 (6:4=1.5)
+        for (let g = 0; g < 400; g++) {
+          const b = r(2, 99); const qt = r(11, 99); if (qt % 10 === 0) continue;
+          if ((b * qt) % 10) continue;
+          const a = (b * qt) / 10; if (a > 99) continue;
+          return buildH([{ n: a }, { op: '：' }, { n: b }, { op: '＝' }, { ans: decMin(qt, 1) }], { title: '求比值', text: `${a}:${b}`, answer: decMin(qt, 1), help: `${a} ÷ ${b}` });
+        }
+      }
+      for (;;) { // 其余含循环商 → 最简分数 (2:3=2/3)，fa 输入，不重抽
+        const a = r(1, 99); const b = r(1, 99);
+        if (a === b || a % b === 0) continue;
+        const [rn, rd] = reduce(a, b);
+        const t = fracAns(rn, rd);
+        return buildH([{ n: a }, { op: '：' }, { n: b }, { op: '＝' }, t], { title: '求比值', text: `${a}:${b}`, answer: t.text, help: `${a} ÷ ${b}` });
+      }
+    }
+    // 解比例 (六下·二 比例的应用、练习二、六下·总复习 书84): a:b＝c:x / a:b＝x:c /
+    // a:x＝b:c with one term hidden; x = 内项积÷外项. Both sides scale one
+    // reduced base ratio (a0,b0) — by k1 and by t/10 — so every term is a
+    // positive integer or a one-decimal number (4:10=14:x→35、4:9=x:3.6→1.6),
+    // and about a quarter of the problems carry a one-decimal term.
+    if (mode === 'solve') {
+      for (let g = 0; g < 600; g++) {
+        const a0 = r(1, 9); const b0 = r(1, 9); if (a0 === b0) continue;
+        const k1 = r(1, Math.min(Math.floor(99 / a0), Math.floor(99 / b0)));
+        const t = rng() < 0.25 ? r(1, 999) : r(1, 99) * 10;
+        const A = a0 * k1; const B = b0 * k1;
+        if (a0 * t < 10 || b0 * t < 10 || a0 * t > 9990 || b0 * t > 9990) continue;
+        const form = r(0, 2);
+        const cs = decMin(a0 * t, 1); const xs = decMin(b0 * t, 1); // cs＝a0 侧、xs＝b0 侧
+        let toks; let text; let help; let hid;
+        if (form === 0) { // a:b＝c:x，内项积＝外项积 → x = B×C÷A
+          toks = [{ n: A }, { op: '：' }, { n: B }, { op: '＝' }, { n: cs }, { op: '：' }, { ans: xs }];
+          text = `${A}:${B}＝${cs}:x`; help = `${B} × ${cs} ÷ ${A}`; hid = b0 * t;
+        } else if (form === 1) { // a:b＝x:c → x = A×C÷B
+          toks = [{ n: A }, { op: '：' }, { n: B }, { op: '＝' }, { ans: cs }, { op: '：' }, { n: xs }];
+          text = `${A}:${B}＝x:${xs}`; help = `${A} × ${xs} ÷ ${B}`; hid = a0 * t;
+        } else { // a:x＝b:c → x = A×C÷B
+          toks = [{ n: A }, { op: '：' }, { ans: cs }, { op: '＝' }, { n: B }, { op: '：' }, { n: xs }];
+          text = `${A}:x＝${B}:${xs}`; help = `${A} × ${xs} ÷ ${B}`; hid = a0 * t;
+        }
+        return buildH(toks, { title: '解比例', text, answer: decMin(hid, 1), help });
+      }
+      throw new Error('ratio solve');
+    }
+    // 相等的比 (六上·六 比的化简) with `ext`: integer, decimal and fraction
+    // terms, about a third each (六下·总复习 书84 revisits them). The left side
+    // carries the unsimplified pair, the right side the lowest-terms ratio
+    // with one number hidden — a single digit (0.7:0.8＝7:( )、2/5:1/4＝8:( )).
+    for (let block = 0; block < 15; block += 1) {
+      const kind = ext ? r(0, 2) : 0; // 每块随机定形态，三形态各约三分之一
+      for (let g = 0; g < 300; g += 1) {
+        const a = r(1, 9); const b = r(1, 9); if (a === b) continue;
+        const [x, y] = reduce(a, b); const k = r(2, 9);
+        const hideLeft = rng() < 0.5;
+        if (kind === 0) { // 整数比（原形态，9:7＝54:( )）
+          const toks = hideLeft ? [{ n: x }, { op: '：' }, { n: y }, { op: '＝' }, { ans: x * k }, { op: '：' }, { n: y * k }] : [{ n: x }, { op: '：' }, { n: y }, { op: '＝' }, { n: x * k }, { op: '：' }, { ans: y * k }];
+          return buildH(toks, { title: '比', text: `${x}:${y}`, answer: String(hideLeft ? x * k : y * k), help: `${k}倍` });
+        }
+        if (kind === 1) { // 小数比：两项同乘 t/100，末尾 0 收掉（0.7:0.8＝7:( )、0.15:3＝1:( )）
+          const t = r(1, 99);
+          const s1 = x * k * t; const s2 = y * k * t;
+          if (s1 > 9990 || s2 > 9990) continue;
+          if (s1 % 100 === 0 && s2 % 100 === 0) continue; // 两项都成了整数
+          const toks = hideLeft ? [{ n: decMin(s1, 2) }, { op: '：' }, { n: decMin(s2, 2) }, { op: '＝' }, { ans: x }, { op: '：' }, { n: y }] : [{ n: decMin(s1, 2) }, { op: '：' }, { n: decMin(s2, 2) }, { op: '＝' }, { n: x }, { op: '：' }, { ans: y }];
+          return buildH(toks, { title: '比', text: `${x}:${y}`, answer: String(hideLeft ? x : y), help: '先化成整数比' });
+        }
+        if (rng() < 0.4) { // 整数与分数各一项（1:3/4＝( ):3）
+          const A = r(1, 9);
+          const d = r(2, 9); const n = r(1, d - 1); if (gcd(n, d) !== 1) continue;
+          const intFirst = rng() < 0.5;
+          const [xn, yn] = intFirst ? reduce(A * d, n) : reduce(n, A * d);
+          if (xn > 9 || yn > 9 || xn === yn) continue;
+          const left = intFirst ? [{ n: A }, fracTok(n, d)] : [fracTok(n, d), { n: A }];
+          const lt = intFirst ? `${A}:${n}/${d}` : `${n}/${d}:${A}`;
+          const toks = hideLeft ? [...left, { op: '＝' }, { ans: xn }, { op: '：' }, { n: yn }] : [...left, { op: '＝' }, { n: xn }, { op: '：' }, { ans: yn }];
+          return buildH(toks, { title: '比', text: lt, answer: String(hideLeft ? xn : yn), help: '前项 ÷ 后项' });
+        }
+        // 两个分数：先定最简比 (x, y)，反构造两个最简真分数（2/5:1/4＝8:( )、1/2:2/3＝3:( )）
+        const d2 = r(2, 12); const n2 = r(1, d2 - 1); if (gcd(n2, d2) !== 1) continue;
+        const g2 = gcd(x * n2, y * d2);
+        const n1 = (x * n2) / g2; const d1 = (y * d2) / g2;
+        if (n1 >= d1 || d1 > 21) continue;
+        const toks = hideLeft ? [fracTok(n1, d1), { op: '：' }, fracTok(n2, d2), { op: '＝' }, { ans: x }, { op: '：' }, { n: y }] : [fracTok(n1, d1), { op: '：' }, fracTok(n2, d2), { op: '＝' }, { n: x }, { op: '：' }, { ans: y }];
+        return buildH(toks, { title: '比', text: `${n1}/${d1}:${n2}/${d2}`, answer: String(hideLeft ? x : y), help: '前项 ÷ 后项' });
+      }
+    }
+    throw new Error('ratio');
   },
   letter(rng) {
     const r = R(rng);
@@ -1205,6 +1548,7 @@ const GEN = {
         return buildH([{ n: decStr(v, p) }, { op: '＝' }, { fa: [rn, rd] }], { title: '分数与小数', text: decStr(v, p), answer: `${rn}/${rd}`, help: `分母是 ${10 ** p}` });
       }
       if (op === 'mix') return fracMix(rng);
+      if (op === 'chain') return fracChain(rng);
       if (op === 'mul' || op === 'div') {
         const d1 = r(2, 9); const n1 = r(1, 9); const d2 = r(2, 9); const n2 = r(1, 9);
         if (gcd(n1, d1) !== 1 || gcd(n2, d2) !== 1 || n1 === d1 || n2 === d2) continue;

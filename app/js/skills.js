@@ -121,11 +121,24 @@ export const SKILLS = [
 
   // ---------------------------------------------------------------- grade 6
   { id: 'g6-frac-dec', name: '小数乘分数', grade: 6, lane: 2, req: ['g6-frac-div', 'g5-dec-div'], gen: ['frac', { op: 'decimal' }] },
+  // 六上·二 分数混合运算（一）（二），the two lessons merged into one skill.
+  { id: 'g6-frac-chain', name: '分数混合运算', grade: 6, lane: 2, req: ['g6-frac-div', 'g5-frac-intmul'], gen: ['frac', { op: 'chain' }] },
   // Moved here from grade 5 by the 2026-09-30 grade-5 alignment decision: the
   // lesson is 六上·七 百分数的应用, neither grade-5 book has one. Only the
   // grade field changed, so the g5- id stays valid for saved progress.
   { id: 'g5-percent', name: '百分数', grade: 6, lane: 3, req: ['g4-dec-mul'], gen: ['percent', {}] },
-  { id: 'g6-ratio', name: '相等的比', grade: 6, lane: 3, req: ['g5-lcm'], gen: ['ratio', {}] },
+  // 六上·四 合格率 / 营养含量（互化）、六上·七 百分数的应用（一）（二）：
+  // 合格率、百分数的应用(一)、这月我当家的除法方向 merged into g6-pct-rate.
+  { id: 'g6-pct-conv', name: '百分数互化', grade: 6, lane: 3, req: ['g5-percent', 'g5-frac-conv'], gen: ['percent', { mode: 'conv' }] },
+  { id: 'g6-pct-rate', name: '求百分率', grade: 6, lane: 3, req: ['g5-percent', 'g6-pct-conv'], gen: ['percent', { mode: 'rate' }] },
+  { id: 'g6-pct-more', name: '多（少）百分之几的数', grade: 6, lane: 3, req: ['g6-pct-conv'], gen: ['percent', { mode: 'more' }] },
+  // g6-ratio 的 ext 扩展 = 六上·六 比的化简的小数比、分数比形态（六下·总复习 书84 再现）。
+  { id: 'g6-ratio', name: '相等的比', grade: 6, lane: 3, req: ['g5-lcm'], gen: ['ratio', { ext: true }] },
+  { id: 'g6-ratio-quo', name: '求比值', grade: 6, lane: 3, req: ['g5-frac-quo'], gen: ['ratio', { mode: 'quo' }] },
+  { id: 'g6-ratio-solve', name: '解比例', grade: 6, lane: 3, req: ['g6-ratio', 'g6-ratio-quo'], gen: ['ratio', { mode: 'solve' }] },
+  // 六上·二 分数混合运算(三)、六上·四 这月我当家、六上·七 百分数的应用(三)：
+  // three lessons with fraction / percent coefficients merged into one skill.
+  { id: 'g6-eq-frac', name: '分数与百分数方程', grade: 6, lane: 3, req: ['g4-eq-2', 'g6-frac-div'], gen: ['eq', { frac: true }] },
   { id: 'g6-letter', name: '求x', grade: 6, lane: 3, req: ['g4-order'], gen: ['letter', {}] },
 ];
 
