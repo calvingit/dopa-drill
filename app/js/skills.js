@@ -10,13 +10,17 @@ export const MASTERY = { window: 6, need: 5 };
 export const SKILLS = [
   // ---------------------------------------------------------------- grade 1
   { id: 'g1-compose10', name: '凑成10', grade: 1, lane: 0, req: [], gen: ['compose', { total: 10 }] },
-  { id: 'g1-add-nc', name: '一位数加法', grade: 1, lane: 0, req: [], gen: ['hadd', { a: [1, 9], b: [1, 9], carry: 'none' }] },
-  { id: 'g1-sub-nb', name: '10以内减法', grade: 1, lane: 0, req: ['g1-add-nc'], gen: ['hsub', { a: [2, 10], b: [1, 9], borrow: 'none' }] },
+  { id: 'g1-add-nc', name: '一位数加法', grade: 1, lane: 0, req: [], gen: ['hadd', { a: [0, 9], b: [0, 9], carry: 'none' }] },
+  { id: 'g1-sub-nb', name: '10以内减法', grade: 1, lane: 0, req: ['g1-add-nc'], gen: ['hsub', { a: [1, 10], b: [0, 9], borrow: 'none', allowEqual: true }] },
   { id: 'g1-add-c', name: '进位加法', grade: 1, lane: 0, req: ['g1-compose10', 'g1-add-nc'], gen: ['hadd', { a: [2, 9], b: [2, 9], carry: 'yes' }] },
-  { id: 'g1-sub-b', name: '退位减法', grade: 1, lane: 0, req: ['g1-add-c', 'g1-sub-nb'], gen: ['hsub', { a: [11, 18], b: [2, 9], borrow: 'yes' }] },
-  { id: 'g1-add3', name: '三个数的计算', grade: 1, lane: 0, req: ['g1-sub-b'], gen: ['add3', {}] },
+  { id: 'g1-sub-b', name: '退位减法', grade: 1, lane: 0, req: ['g1-add-c', 'g1-sub-nb'], gen: ['hsub', { a: [10, 18], b: [2, 9], borrow: 'yes' }] },
+  { id: 'g1-add3', name: '三个数的计算', grade: 1, lane: 0, req: ['g1-sub-nb'], gen: ['add3', { max: 10 }] },
   { id: 'g1-add-2d1', name: '两位数加一位数', grade: 1, lane: 0, req: ['g1-add-c'], gen: ['hadd', { a: [11, 89], b: [1, 9], carry: 'none', tensToo: true }] },
   { id: 'g1-sub-2d1', name: '两位数减一位数', grade: 1, lane: 0, req: ['g1-sub-b', 'g1-add-2d1'], gen: ['hsub', { a: [11, 99], b: [1, 9], borrow: 'none', tensToo: true }] },
+  { id: 'g1-add-2d2', name: '两位数加两位数', grade: 1, lane: 0, req: ['g1-add-2d1'], gen: ['hadd', { a: [11, 89], b: [11, 89], carry: 'none' }] },
+  { id: 'g1-sub-2d2', name: '两位数减两位数', grade: 1, lane: 0, req: ['g1-sub-2d1', 'g1-add-2d2'], gen: ['hsub', { a: [21, 99], b: [11, 89], borrow: 'none' }] },
+  { id: 'g1-add-2d-c', name: '两位数进位加法', grade: 1, lane: 0, req: ['g1-add-c', 'g1-add-2d2'], gen: ['hadd', { a: [11, 89], b: [1, 89], carry: 'yes', maxSum: 100 }] },
+  { id: 'g1-sub-2d-b', name: '两位数退位减法', grade: 1, lane: 0, req: ['g1-sub-b', 'g1-sub-2d2'], gen: ['hsub', { a: [21, 100], b: [1, 89], borrow: 'yes' }] },
 
   // ---------------------------------------------------------------- grade 2
   { id: 'g2-vadd2-nc', name: '两位数加法竖式', grade: 2, lane: 0, req: ['g1-add-2d1'], gen: ['vadd', { da: 2, db: 2, carry: 'none', maxDigits: 2 }] },

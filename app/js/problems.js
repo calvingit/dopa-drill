@@ -329,11 +329,12 @@ const GEN = {
     const a = R(rng)(1, total - 1);
     return buildH([{ n: total }, { w: '是' }, { n: a }, { w: '和' }, { ans: total - a }], { title: '几和几', text: `${total}是${a}和`, answer: String(total - a), help: `${a}再加几是${total}` });
   },
-  hadd(rng, { a, b, carry, tensToo }) {
+  hadd(rng, { a, b, carry, tensToo, maxSum }) {
     const r = R(rng);
     for (let g = 0; g < 400; g++) {
       let x; let y;
       if (tensToo && rng() < 0.3) { x = r(1, 8) * 10; y = r(1, 9 - x / 10) * 10; } else { x = range(a, rng); y = range(b, rng); }
+      if (maxSum && x + y > maxSum) continue;
       const c = carries(x, y);
       if (carry === 'none' && c) continue;
       if (carry === 'yes' && !c) continue;
@@ -343,27 +344,28 @@ const GEN = {
     }
     throw new Error('hadd');
   },
-  hsub(rng, { a, b, borrow, tensToo }) {
+  hsub(rng, { a, b, borrow, tensToo, allowEqual }) {
     const r = R(rng);
     for (let g = 0; g < 400; g++) {
       let x; let y;
       if (tensToo && rng() < 0.3) { x = r(2, 9) * 10; y = r(1, x / 10 - 1) * 10; } else { x = range(a, rng); y = range(b, rng); }
-      if (y >= x) continue;
+      if (allowEqual ? y > x : y >= x) continue;
       const br = borrows(x, y);
       if (borrow === 'none' && br) continue;
       if (borrow === 'yes' && !br) continue;
-      const help = borrow === 'yes' ? `10 − ${y} ＝ ${10 - y}` : `${x} − ${y}`;
+      // 破十提示只对一位数减数成立；两位数减数回退为整式。
+      const help = borrow === 'yes' && y <= 9 ? `10 − ${y} ＝ ${10 - y}` : `${x} − ${y}`;
       return buildH([{ n: x }, { op: '−' }, { n: y }, { op: '＝' }, { ans: x - y }], { title: '减法', text: `${x} − ${y}`, answer: String(x - y), help });
     }
     throw new Error('hsub');
   },
-  add3(rng) {
+  add3(rng, { max = 20 } = {}) {
     const r = R(rng);
     for (let g = 0; g < 400; g++) {
-      const a = r(1, 9); const b = r(1, 9); const c = r(1, 9);
+      const a = r(1, max); const b = r(1, max); const c = r(1, max);
       const o1 = rng() < 0.6 ? '＋' : '−'; const o2 = rng() < 0.6 ? '＋' : '−';
       const s1 = o1 === '＋' ? a + b : a - b; if (s1 < 0) continue;
-      const s2 = o2 === '＋' ? s1 + c : s1 - c; if (s2 < 0 || s2 > 20) continue;
+      const s2 = o2 === '＋' ? s1 + c : s1 - c; if (s2 < 0 || s2 > max) continue;
       return buildH([{ n: a }, { op: o1 }, { n: b }, { op: o2 }, { n: c }, { op: '＝' }, { ans: s2 }], { title: '三个数', text: `${a}${o1}${b}${o2}${c}`, answer: String(s2), help: `先算 ${a} ${o1} ${b} ＝ ${s1}` });
     }
     throw new Error('add3');
