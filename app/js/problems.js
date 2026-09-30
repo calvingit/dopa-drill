@@ -361,6 +361,36 @@ const GEN = {
   },
   add3(rng, { max = 20, min = 1 } = {}) {
     const r = R(rng);
+    if (min >= 100) {
+      // Three-digit mode (grade 3): the four +- forms come up evenly instead
+      // of the 0.6 draw. Chain additions may include one two-digit addend;
+      // about 15% of the chain subtractions fix a at 1000 (the textbook's
+      // "999+1" anchor, the only 16-column layout in the app).
+      for (let g = 0; g < 400; g++) {
+        const form = r(0, 3);
+        let a; let b; let c; let s1; let s2; let o1; let o2;
+        if (form === 0) { // a＋b＋c
+          a = r(100, 750); b = r(86, 400); c = r(80, 400);
+          if (rng() < 1 / 3) { if (rng() < 0.5) b = r(80, 99); else c = r(80, 99); }
+          if (a + b + c > max) continue;
+          o1 = '＋'; o2 = '＋'; s1 = a + b; s2 = s1 + c;
+        } else if (form === 1) { // a−b−c
+          a = rng() < 0.15 ? 1000 : r(400, 999); b = r(86, 400); c = r(80, 400);
+          if (a - b - c < 0) continue;
+          o1 = '−'; o2 = '−'; s1 = a - b; s2 = s1 - c;
+        } else if (form === 2) { // a＋b−c
+          a = r(100, 900); b = r(100, 900); c = r(100, 900);
+          s1 = a + b; if (s1 - c < 0 || s1 - c > max) continue;
+          o1 = '＋'; o2 = '−'; s2 = s1 - c;
+        } else { // a−b＋c
+          a = r(100, 900); b = r(100, 900); c = r(100, 900);
+          s1 = a - b; if (s1 < 0 || s1 + c > max) continue;
+          o1 = '−'; o2 = '＋'; s2 = s1 + c;
+        }
+        return buildH([{ n: a }, { op: o1 }, { n: b }, { op: o2 }, { n: c }, { op: '＝' }, { ans: s2 }], { title: '三个数', text: `${a}${o1}${b}${o2}${c}`, answer: String(s2), help: `先算 ${a} ${o1} ${b} ＝ ${s1}` });
+      }
+      throw new Error('add3');
+    }
     for (let g = 0; g < 400; g++) {
       const a = r(min, max); const b = r(min, max); const c = r(min, max);
       const o1 = rng() < 0.6 ? '＋' : '−'; const o2 = rng() < 0.6 ? '＋' : '−';
@@ -374,9 +404,79 @@ const GEN = {
     const a = pickOf(rng, dans); const b = R(rng)(1, 9);
     return buildH([{ n: a }, { op: '×' }, { n: b }, { op: '＝' }, { ans: a * b }], { title: '乘法', text: `${a} × ${b}`, answer: String(a * b), help: table(a, a * (b - 1)) });
   },
-  mulTens(rng) {
-    const a = R(rng)(1, 9) * 10; const b = R(rng)(2, 9);
-    return buildH([{ n: a }, { op: '×' }, { n: b }, { op: '＝' }, { ans: a * b }], { title: '乘法', text: `${a} × ${b}`, answer: String(a * b), help: `${a / 10} × ${b} 的10倍` });
+  // Whole tens (and with `hundreds` whole hundreds) times 1-2 digits, shown in
+  // either order; the hint splits the tens/hundreds factor.
+  mulTens(rng, { hundreds, twoDigit }) {
+    const r = R(rng);
+    let t; let u;
+    if (twoDigit) { t = r(1, 9) * 10; u = r(11, 99); }
+    else if (hundreds && rng() < 0.3) { t = r(1, 9) * 100; u = r(2, 9); }
+    else { t = r(1, 9) * 10; u = r(2, 9); }
+    if (rng() < 0.5) [t, u] = [u, t];
+    const big = t % 10 === 0 ? t : u;
+    const unit = big % 100 === 0 ? 100 : 10;
+    return buildH([{ n: t }, { op: '×' }, { n: u }, { op: '＝' }, { ans: t * u }], { title: '乘法', text: `${t} × ${u}`, answer: String(t * u), help: `${big / unit} × ${big === t ? u : t} 的${unit}倍` });
+  },
+  // Mental 2-digit × 1-digit (grade 3): the hint splits the tens
+  // (12 × 3 ＝ 10 × 3 ＋ 2 × 3).
+  hmul(rng, { a, b, maxProd }) {
+    const r = R(rng);
+    for (let g = 0; g < 400; g++) {
+      const x = range(a, rng); if (x % 10 === 0) continue;
+      const y = range(b, rng);
+      if (x * y > maxProd) continue;
+      return buildH([{ n: x }, { op: '×' }, { n: y }, { op: '＝' }, { ans: x * y }], { title: '乘法', text: `${x} × ${y}`, answer: String(x * y), help: `${x - (x % 10)} × ${y} ＋ ${x % 10} × ${y}` });
+    }
+    throw new Error('hmul');
+  },
+  mul3(rng, { a = [3, 45], b = [2, 18], c = [2, 9], max = 999 } = {}) {
+    const r = R(rng);
+    for (let g = 0; g < 400; g++) {
+      const x = range(a, rng); const y = range(b, rng); const z = range(c, rng);
+      if (x * y * z > max) continue;
+      return buildH([{ n: x }, { op: '×' }, { n: y }, { op: '×' }, { n: z }, { op: '＝' }, { ans: x * y * z }], { title: '连乘', text: `${x} × ${y} × ${z}`, answer: String(x * y * z), help: `先算 ${x} × ${y} ＝ ${x * y}` });
+    }
+    throw new Error('mul3');
+  },
+  // Two-step ×/÷ chains (grade 3). Every division step must land on a mental
+  // quotient (one digit 2-9, whole tens 10-90 or whole hundreds 100-900:
+  // long division sits in grade 4), so the textbook's general-quotient
+  // problems (850÷5×3 etc.) are out of scope on purpose.
+  muldiv(rng) {
+    const r = R(rng);
+    const mental = (n) => (n >= 2 && n <= 9) || (n % 10 === 0 && n <= 90) || (n % 100 === 0 && n <= 900);
+    const quot = () => [r(2, 9), r(1, 9) * 10, r(1, 9) * 100][r(0, 2)];
+    for (let g = 0; g < 400; g++) {
+      const form = r(0, 3);
+      let toks; let ans; let help;
+      if (form === 0) { // a÷b×c
+        const b = r(2, 9); const c = r(2, 9); const m = quot();
+        if (b * m > 999 || m * c > 999) continue;
+        toks = [{ n: b * m }, { op: '÷' }, { n: b }, { op: '×' }, { n: c }]; ans = m * c;
+        help = `先算 ${b * m} ÷ ${b} ＝ ${m}`;
+      } else if (form === 1) { // a×b÷c
+        const a = r(11, 99); const b = r(2, 10); const p = a * b;
+        if (b !== 10 && a % 10 !== 0 && p > 98) continue;
+        const cs = [2, 3, 4, 5, 6, 7, 8, 9].filter((c) => c !== b && p % c === 0 && mental(p / c));
+        if (!cs.length) continue;
+        const c = pickOf(rng, cs);
+        toks = [{ n: a }, { op: '×' }, { n: b }, { op: '÷' }, { n: c }]; ans = p / c;
+        help = `先算 ${a} × ${b} ＝ ${p}`;
+      } else if (form === 2) { // a÷b÷c
+        const b = r(2, 9); const c = r(2, 9); const k = quot();
+        if (!mental(c * k) || b * c * k > 999) continue;
+        toks = [{ n: b * c * k }, { op: '÷' }, { n: b }, { op: '÷' }, { n: c }]; ans = k;
+        help = `先算 ${b * c * k} ÷ ${b} ＝ ${c * k}`;
+      } else { // a÷(b×c)
+        const b = r(2, 9); const c = r(2, 9); const k = quot();
+        if (b * c * k > 999) continue;
+        toks = [{ n: b * c * k }, { op: '÷' }, { op: '(' }, { n: b }, { op: '×' }, { n: c }, { op: ')' }]; ans = k;
+        help = `先算 ${b} × ${c} ＝ ${b * c}`;
+      }
+      const text = toks.map((t) => t.n ?? t.op).join('');
+      return buildH([...toks, { op: '＝' }, { ans }], { title: '乘除两步', text, answer: String(ans), help });
+    }
+    throw new Error('muldiv');
   },
   // Whole hundreds or whole tens add/sub (grade 2 skill): about half of each
   // form; sums stay within 2000 and subtraction takes the larger number first.
@@ -405,11 +505,26 @@ const GEN = {
     const D = q * d + rem;
     return buildH([{ n: D }, { op: '÷' }, { n: d }, { op: '＝' }, { ans: q, label: '商' }, { w: '余' }, { ans: rem, label: '余数' }], { title: '有余数的除法', text: `${D} ÷ ${d}`, answer: `${q} 余 ${rem}`, help: table(d, D) });
   },
-  divTens(rng) {
+  // With `big`, two 3-digit forms join the two 2-digit ones (丰收了 of the
+  // textbook): hundreds-tens ÷ 1 digit = whole tens, whole hundreds/thousands
+  // hundreds ÷ 1 digit = whole hundreds. Every form divides exactly.
+  divTens(rng, { big }) {
     const r = R(rng);
     for (let g = 0; g < 200; g++) {
       const d = r(2, 9);
-      if (rng() < 0.5) { const q = r(1, 9); if (q * d * 10 > 99) continue; return buildH([{ n: q * d * 10 }, { op: '÷' }, { n: d }, { op: '＝' }, { ans: q * 10 }], { title: '除法', text: `${q * d * 10} ÷ ${d}`, answer: String(q * 10), help: `${q * d} ÷ ${d} 的10倍` }); }
+      const form = big ? r(0, 3) : r(0, 1);
+      if (form === 0) { // whole tens ÷ 1 digit = whole tens (2 digits)
+        const q = r(1, 9); if (q * d * 10 > 99) continue;
+        return buildH([{ n: q * d * 10 }, { op: '÷' }, { n: d }, { op: '＝' }, { ans: q * 10 }], { title: '除法', text: `${q * d * 10} ÷ ${d}`, answer: String(q * 10), help: `${q * d} ÷ ${d} 的10倍` });
+      }
+      if (form === 2) { // hundreds-tens / whole hundreds ÷ 1 digit = whole tens
+        const q = r(2, 9); if (q * d < 10) continue;
+        return buildH([{ n: q * d * 10 }, { op: '÷' }, { n: d }, { op: '＝' }, { ans: q * 10 }], { title: '除法', text: `${q * d * 10} ÷ ${d}`, answer: String(q * 10), help: `${q * d} ÷ ${d} 的10倍` });
+      }
+      if (form === 3) { // whole hundreds / thousands-hundreds ÷ 1 digit = whole hundreds
+        const h = r(1, 9);
+        return buildH([{ n: h * d * 100 }, { op: '÷' }, { n: d }, { op: '＝' }, { ans: h * 100 }], { title: '除法', text: `${h * d * 100} ÷ ${d}`, answer: String(h * 100), help: `${h * d} ÷ ${d} 的100倍` });
+      }
       const t = r(1, 4); const o = r(1, 4); const D = (t * 10 + o) * d; if (D > 99 || Math.floor(D / 10) % d || (D % 10) % d) continue;
       return buildH([{ n: D }, { op: '÷' }, { n: d }, { op: '＝' }, { ans: D / d }], { title: '除法', text: `${D} ÷ ${d}`, answer: String(D / d), help: `${Math.floor(D / 10) * 10} ÷ ${d} 和 ${D % 10} ÷ ${d}` });
     }
@@ -444,11 +559,14 @@ const GEN = {
     }
     throw new Error('vsub');
   },
-  vmul(rng, { da, db, pa = 0, pb = 0 }) {
+  vmul(rng, { da, db, pa = 0, pb = 0, aMax, aEnd }) {
     const r = R(rng);
     for (let g = 0; g < 400; g++) {
       const a = nDigit(r, da); const b = db === 1 ? r(2, 9) : nDigit(r, db);
-      if (a % 10 === 0 || (db > 1 && b % 10 === 0)) continue;
+      // aMax is a replacing upper bound on the multiplicand; aEnd: 'zero'
+      // requires it to end in 0 (末尾有0的乘法), otherwise it must not.
+      if (aEnd ? a % 10 !== 0 : a % 10 === 0 || (db > 1 && b % 10 === 0)) continue;
+      if (aMax && a > aMax) continue;
       const P = pa + pb; const prod = a * b;
       if (P && (prod % 10 === 0 || prod < 10 ** P)) continue;
       return buildMul(a, b, pa, pb);
@@ -468,13 +586,19 @@ const GEN = {
     }
     throw new Error('vdiv');
   },
-  vdec(rng, { op, places }) {
+  vdec(rng, { op, places, aMax, bMax, intMinuend }) {
     const r = R(rng);
     const o = op === 'addsub' ? (rng() < 0.5 ? 'add' : 'sub') : op;
     for (let g = 0; g < 600; g++) {
       const pa = places; const pb = places === 2 && rng() < 0.4 ? 1 : places;
-      const a = r(10 ** pa + 1, 10 ** (pa + 1) * 3 - 1); const b = r(10 ** pb * 0 + 1, 10 ** (pb + 1) * 2 - 1);
-      if (a % 10 === 0 || b % 10 === 0) continue;
+      // aMax/bMax are replacing upper bounds on the scaled integers (redraw
+      // when exceeded); the defaults keep the original hard-coded ranges.
+      const aLim = aMax || 10 ** (pa + 1) * 3 - 1; const bLim = bMax || 10 ** (pb + 1) * 2 - 1;
+      // intMinuend: about a quarter of the subtractions take a whole-number
+      // minuend, shown padded as X.0 (寄书 / 练习六 of the textbook).
+      const aInt = o === 'sub' && intMinuend && rng() < 0.25;
+      const a = aInt ? r(2, 50) * 10 ** pa : r(10 ** pa + 1, aLim); const b = r(10 ** pb * 0 + 1, bLim);
+      if (b % 10 === 0 || (a % 10 === 0 && !aInt)) continue;
       const P = Math.max(pa, pb);
       const A = a * 10 ** (P - pa); const B = b * 10 ** (P - pb);
       if (o === 'add') { if ((A + B) % 10 === 0) continue; return buildAdd(a, b, pa, pb); }
@@ -562,7 +686,7 @@ const GEN = {
     else { toks = [{ n: 'x' }, { op: '−' }, { n: a }, { op: '＝' }, { n: x }]; help = `${x} ＋ ${a}`; return buildH([...toks, { br: true }, { n: 'x' }, { op: '＝' }, { ans: x + a }], { title: '求x', text: toks.map((t) => t.n ?? t.op ?? t.w).join(''), answer: String(x + a), help }); }
     return buildH([...toks, { br: true }, { n: 'x' }, { op: '＝' }, { ans: x }], { title: '求x', text: toks.map((t) => t.n ?? t.op ?? t.w).join(''), answer: String(x), help });
   },
-  frac(rng, { op, same, maxOne, mixed }) {
+  frac(rng, { op, same, maxOne, mixed, dMax, fromOne }) {
     const r = R(rng);
     for (let g = 0; g < 600; g++) {
       if (op === 'reduce') {
@@ -570,7 +694,7 @@ const GEN = {
         return buildH([fracTok(n * k, d * k), { op: '＝' }, { fa: [n, d] }], { title: '约分', text: `${n * k}/${d * k}`, answer: `${n}/${d}`, help: `除以 ${k}` });
       }
       if (op === 'addsub' && same) {
-        const d = r(3, 12); const add = rng() < 0.55;
+        const d = r(3, dMax || 12); const add = rng() < 0.55;
         if (mixed) {
           const w1 = r(1, 4); const w2 = r(0, 3); const n1 = r(1, d - 1); const n2 = r(1, d - 1);
           const A = w1 * d + n1; const B = w2 * d + n2;
@@ -579,6 +703,11 @@ const GEN = {
           const t1 = fracTok(n1, d, w1); const t2 = fracTok(n2, d, w2 || undefined);
           const fa = { fa: [res % d, d, Math.floor(res / d) || undefined] };
           return buildH([t1, { op: add ? '＋' : '−' }, t2, { op: '＝' }, fa], { title: '分数加减', text: `${w1}又${n1}/${d} ${add ? '+' : '−'} ${w2}又${n2}/${d}`, answer: res >= d ? `${Math.floor(res / d)}又${res % d}/${d}` : `${res}/${d}`, help: `分母仍是 ${d}` });
+        }
+        // fromOne: about 30% come out as 1 − n/d (吃西瓜 of the textbook).
+        if (fromOne && rng() < 0.3) {
+          const n = r(1, d - 1);
+          return buildH([{ n: 1 }, { op: '−' }, fracTok(n, d), { op: '＝' }, { fa: [d - n, d] }], { title: '分数加减', text: `1 − ${n}/${d}`, answer: `${d - n}/${d}`, help: `${d}/${d} − ${n}/${d}` });
         }
         const n1 = r(1, d - 1); const n2 = r(1, d - 1);
         const res = add ? n1 + n2 : n1 - n2;

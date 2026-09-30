@@ -25,7 +25,9 @@ function checkLayout(p) {
     }
     assert.ok(c.r >= 0 && c.r < p.rows && c.c >= 0 && c.c + (c.cs || 1) <= p.cols, `${p.skill} ${p.text}: ${c.id} out of grid`);
   }
-  assert.ok(p.cols <= 13 && p.rows <= 12, `${p.skill} ${p.text}: grid ${p.cols}x${p.rows}`);
+  // 16 columns: the grade-3 1000−…−… chain subtraction (textbook book p.19;
+  // kept by the 2026-09-30 revision ruling, option A). Everything else stays ≤15.
+  assert.ok(p.cols <= 16 && p.rows <= 12, `${p.skill} ${p.text}: grid ${p.cols}x${p.rows}`);
   const ids = new Set(p.cells.map((c) => c.id));
   for (const st of p.steps) {
     assert.ok(ids.has(st.cell), `${p.skill}: step cell ${st.cell}`);
