@@ -359,10 +359,10 @@ const GEN = {
     }
     throw new Error('hsub');
   },
-  add3(rng, { max = 20 } = {}) {
+  add3(rng, { max = 20, min = 1 } = {}) {
     const r = R(rng);
     for (let g = 0; g < 400; g++) {
-      const a = r(1, max); const b = r(1, max); const c = r(1, max);
+      const a = r(min, max); const b = r(min, max); const c = r(min, max);
       const o1 = rng() < 0.6 ? '＋' : '−'; const o2 = rng() < 0.6 ? '＋' : '−';
       const s1 = o1 === '＋' ? a + b : a - b; if (s1 < 0) continue;
       const s2 = o2 === '＋' ? s1 + c : s1 - c; if (s2 < 0 || s2 > max) continue;
@@ -377,6 +377,20 @@ const GEN = {
   mulTens(rng) {
     const a = R(rng)(1, 9) * 10; const b = R(rng)(2, 9);
     return buildH([{ n: a }, { op: '×' }, { n: b }, { op: '＝' }, { ans: a * b }], { title: '乘法', text: `${a} × ${b}`, answer: String(a * b), help: `${a / 10} × ${b} 的10倍` });
+  },
+  // Whole hundreds or whole tens add/sub (grade 2 skill): about half of each
+  // form; sums stay within 2000 and subtraction takes the larger number first.
+  tensCalc(rng) {
+    const r = R(rng);
+    for (let g = 0; g < 400; g++) {
+      const add = rng() < 0.5;
+      let a; let b;
+      if (rng() < 0.5) { a = r(2, 18) * 100; b = r(1, 9) * 100; } else { a = r(12, 99) * 10; b = r(1, 45) * 10; }
+      if (add ? a + b > 2000 : b >= a) continue;
+      const o = add ? '＋' : '−';
+      return buildH([{ n: a }, { op: o }, { n: b }, { op: '＝' }, { ans: add ? a + b : a - b }], { title: add ? '加法' : '减法', text: `${a} ${add ? '+' : '−'} ${b}`, answer: String(add ? a + b : a - b), help: `${a} ${o} ${b}` });
+    }
+    throw new Error('tensCalc');
   },
   fracOf(rng, { dens }) {
     const d = pickOf(rng, dens); const q = R(rng)(1, 9);
@@ -401,12 +415,13 @@ const GEN = {
     }
     throw new Error('divTens');
   },
-  vadd(rng, { da, db, carry, maxDigits }) {
+  vadd(rng, { da, db, carry, maxDigits, minSum }) {
     const r = R(rng);
     for (let g = 0; g < 600; g++) {
       const a = nDigit(r, range(da, rng)); const b = nDigit(r, range(db, rng));
       const s = a + b; const c = carries(a, b);
       if (String(s).length > maxDigits) continue;
+      if (minSum && s < minSum) continue;
       if (carry === 'none' && c) continue;
       if (carry === 'some' && !c) continue;
       if (carry === 'many' && c < 2) continue;

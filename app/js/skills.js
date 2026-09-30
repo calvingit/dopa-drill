@@ -27,15 +27,15 @@ export const SKILLS = [
   { id: 'g2-vadd2-c', name: '进位竖式', grade: 2, lane: 0, req: ['g2-vadd2-nc', 'g1-add-c'], gen: ['vadd', { da: 2, db: [1, 2], carry: 'some', maxDigits: 2 }] },
   { id: 'g2-vsub2-nb', name: '两位数减法竖式', grade: 2, lane: 0, req: ['g1-sub-2d1'], gen: ['vsub', { da: 2, db: 2, borrow: 'none' }] },
   { id: 'g2-vsub2-b', name: '退位竖式', grade: 2, lane: 0, req: ['g2-vsub2-nb', 'g1-sub-b'], gen: ['vsub', { da: 2, db: [1, 2], borrow: 'some' }] },
-  { id: 'g2-vadd3s', name: '超过一百的加法', grade: 2, lane: 0, req: ['g2-vadd2-c'], gen: ['vadd', { da: 2, db: 2, carry: 'many', maxDigits: 3 }] },
+  { id: 'g2-add3', name: '100以内连加减', grade: 2, lane: 0, req: ['g2-vadd2-c', 'g2-vsub2-b'], gen: ['add3', { min: 10, max: 100 }] },
+  { id: 'g2-vadd3s', name: '超过一百的加法', grade: 2, lane: 0, req: ['g2-vadd2-c'], gen: ['vadd', { da: 2, db: 2, carry: 'some', maxDigits: 3, minSum: 101 }] },
   { id: 'g2-vsub3s', name: '从一百起的减法', grade: 2, lane: 0, req: ['g2-vsub2-b', 'g2-vadd3s'], gen: ['vsub', { da: 3, db: 2, borrow: 'some', aMax: 199 }] },
+  { id: 'g2-tens-addsub', name: '整百整十的加减', grade: 2, lane: 0, req: ['g2-add3'], gen: ['tensCalc', {}] },
   { id: 'g2-kuku25', name: '5和2的乘法口诀', grade: 2, lane: 1, req: ['g1-add-c'], gen: ['kuku', { dans: [5, 2] }] },
   { id: 'g2-kuku34', name: '3和4的乘法口诀', grade: 2, lane: 1, req: ['g2-kuku25'], gen: ['kuku', { dans: [3, 4] }] },
   { id: 'g2-kuku67', name: '6和7的乘法口诀', grade: 2, lane: 1, req: ['g2-kuku34'], gen: ['kuku', { dans: [6, 7] }] },
   { id: 'g2-kuku891', name: '8、9、1的乘法口诀', grade: 2, lane: 1, req: ['g2-kuku67'], gen: ['kuku', { dans: [8, 9, 1] }] },
   { id: 'g2-kuku-mix', name: '口诀混合', grade: 2, lane: 1, req: ['g2-kuku891'], gen: ['kuku', { dans: [1, 2, 3, 4, 5, 6, 7, 8, 9] }] },
-  { id: 'g2-mul-tens', name: '整十乘一位数', grade: 2, lane: 1, req: ['g2-kuku-mix'], gen: ['mulTens', {}] },
-  { id: 'g2-frac-of', name: '二分之一和四分之一', grade: 2, lane: 2, req: ['g2-kuku25'], gen: ['fracOf', { dens: [2, 4] }] },
 
   // ---------------------------------------------------------------- grade 3
   { id: 'g3-vadd3', name: '三位数加法', grade: 3, lane: 0, req: ['g2-vadd3s'], gen: ['vadd', { da: 3, db: 3, carry: 'some', maxDigits: 3 }] },
@@ -45,12 +45,16 @@ export const SKILLS = [
   { id: 'g3-div-basic', name: '除法', grade: 3, lane: 1, req: ['g2-kuku-mix'], gen: ['div', { exact: true }] },
   { id: 'g3-div-rem', name: '有余数的除法', grade: 3, lane: 1, req: ['g3-div-basic'], gen: ['divRem', {}] },
   { id: 'g3-div-tens', name: '整十除以一位数', grade: 3, lane: 1, req: ['g3-div-basic'], gen: ['divTens', {}] },
+  // Moved here from grade 2 by the 2026-09-30 alignment decision; the g2- id is
+  // kept for saved-progress compatibility (docs/curriculum.md, grade 3 note).
+  { id: 'g2-mul-tens', name: '整十乘一位数', grade: 3, lane: 1, req: ['g2-kuku-mix'], gen: ['mulTens', {}] },
   { id: 'g3-vmul-2x1', name: '两位数乘一位数竖式', grade: 3, lane: 1, req: ['g2-mul-tens'], gen: ['vmul', { da: 2, db: 1 }] },
   { id: 'g3-vmul-3x1', name: '三位数乘一位数', grade: 3, lane: 1, req: ['g3-vmul-2x1'], gen: ['vmul', { da: 3, db: 1 }] },
   { id: 'g3-vmul-2x2', name: '两位数乘两位数', grade: 3, lane: 1, req: ['g3-vmul-2x1'], gen: ['vmul', { da: 2, db: 2 }] },
   { id: 'g3-vmul-3x2', name: '三位数乘两位数', grade: 3, lane: 1, req: ['g3-vmul-2x2', 'g3-vmul-3x1'], gen: ['vmul', { da: 3, db: 2 }] },
   { id: 'g3-dec-add1', name: '小数加法', grade: 3, lane: 2, req: ['g2-vadd2-c'], gen: ['vdec', { op: 'add', places: 1 }] },
   { id: 'g3-dec-sub1', name: '小数减法', grade: 3, lane: 2, req: ['g3-dec-add1', 'g2-vsub2-b'], gen: ['vdec', { op: 'sub', places: 1 }] },
+  { id: 'g2-frac-of', name: '二分之一和四分之一', grade: 3, lane: 2, req: ['g2-kuku25'], gen: ['fracOf', { dens: [2, 4] }] },
   { id: 'g3-frac-same', name: '分数加减', grade: 3, lane: 2, req: ['g2-frac-of'], gen: ['frac', { op: 'addsub', same: true, maxOne: true }] },
 
   // ---------------------------------------------------------------- grade 4
