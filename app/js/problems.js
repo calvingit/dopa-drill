@@ -24,6 +24,8 @@ const lcm = (a, b) => (a / gcd(a, b)) * b;
 const table = (d, n) => { const out = []; for (let k = 1; k <= 9; k++) { out.push(d * k); if (d * k > n) break; } return `${d}的倍数：${out.join(' ')}`; };
 // Decimal string for an integer scaled by 10^p (1234, 2 -> "12.34").
 const decStr = (n, p) => { if (!p) return String(n); const s = String(n).padStart(p + 1, '0'); return `${s.slice(0, -p)}.${s.slice(-p)}`; };
+// Same, with trailing zeros dropped (1200 at 2 places -> "12", 4050 at 3 -> "4.05").
+const decMin = (n, p) => { let s = decStr(n, p); while (s.includes('.') && s.endsWith('0')) s = s.slice(0, -1); return s.endsWith('.') ? s.slice(0, -1) : s; };
 
 function carries(a, b) {
   let c = 0; let n = 0;
@@ -331,6 +333,146 @@ function fracAns(n, d, mixed) {
 }
 const fracTok = (n, d, whole) => ({ f: [n, d, whole] });
 
+// 小数混合运算, the ×/÷ half of dec3 (`four`). Seven shapes of 五上·一 调查
+// 「生活垃圾」: a÷b÷c, a÷(b×c), a÷(b÷c), a−b×c, (a−b)÷c, a×b÷c and 1−a×c.
+// Every division is exact — the quotient is drawn and the dividend built back
+// from it — and every value is printed with the places it really has, so
+// 1−0.35×0.7 stays 0.755 instead of 0.76. Terms are whole numbers or 1-2
+// decimals (never ending in 0); a result is a whole number or has 1-3 decimals.
+function dec3Four(rng) {
+  const r = R(rng);
+  // One term: a whole number or a 1-2 decimal number that never ends in 0.
+  const term = () => {
+    const k = r(0, 3);
+    if (k === 0) { const n = r(2, 15); return { s: String(n), m: n * 1000 }; }
+    if (k === 1) { const n = r(11, 99); if (n % 10 === 0) return null; return { s: decStr(n, 1), m: n * 100 }; }
+    if (k === 2) { const n = r(11, 999); if (n % 10 === 0) return null; return { s: decStr(n, 2), m: n * 10 }; }
+    const n = r(11, 99); if (n % 10 === 0) return null;
+    return { s: decStr(n, 2), m: n * 10 };
+  };
+  // Candidates for the result, in thousandths: whole numbers and two decimals,
+  // or — for 1−a×c, whose result is below 1 — the multiples of C/gcd(C, 1000)
+  // that make a×C exact, plus three decimals (0.755). A short list beats
+  // redrawing the whole shape, because only some of them divide exactly.
+  const cands = (small, C) => {
+    const out = [];
+    if (small) {
+      const g = C.m / gcd(C.m, 1000);
+      const hi = Math.floor(999 / g);
+      for (let i = 0; i < 4; i += 1) { const t = r(1, hi); if (t % 10 !== 0) out.push(1000 - t * g); }
+      for (let i = 0; i < 3; i += 1) { const m = r(1, 999); if (m % 10 !== 0) out.push(m); }
+      return out;
+    }
+    for (let i = 0; i < 4; i += 1) out.push(r(1, 99) * 10 + r(1, 9));
+    for (let i = 0; i < 3; i += 1) out.push(r(1, 99) * 1000);
+    return out;
+  };
+  const whole = (m) => m > 0 && m <= 99990 && m % 10 === 0; // at most 2 decimals
+  const s = (m) => decMin(m, 3);
+  // Build one shape, or null when the division is not exact / a is not a term.
+  const build = (form, B, C, R) => {
+    let toks; let help; let a;
+    if (form <= 1) { // a÷b÷c and a÷(b×c) are the same arithmetic
+      a = R * B.m * C.m / 1e6; if (!Number.isInteger(a)) return null;
+      toks = form === 0
+        ? [{ n: s(a) }, { op: '÷' }, { n: B.s }, { op: '÷' }, { n: C.s }]
+        : [{ n: s(a) }, { op: '÷' }, { op: '(' }, { n: B.s }, { op: '×' }, { n: C.s }, { op: ')' }];
+      if (form === 1) { help = `先算 ${B.s} × ${C.s} ＝ ${s(B.m * C.m / 1000)}`; } else {
+        // The step shown in the hint keeps to three decimals like everything else.
+        const m = a / B.m * 1000; if (!Number.isInteger(m)) return null;
+        help = `先算 ${s(a)} ÷ ${B.s} ＝ ${s(m)}`;
+      }
+    } else if (form === 2) { // a÷(b÷c)
+      const w = B.m * 1000 / C.m; if (!Number.isInteger(w)) return null;
+      a = R * w / 1000; if (!Number.isInteger(a)) return null;
+      toks = [{ n: s(a) }, { op: '÷' }, { op: '(' }, { n: B.s }, { op: '÷' }, { n: C.s }, { op: ')' }];
+      help = `先算 ${B.s} ÷ ${C.s} ＝ ${s(w)}`;
+    } else if (form === 3) { // a−b×c
+      const p = B.m * C.m / 1000; if (!Number.isInteger(p)) return null;
+      a = R + p;
+      toks = [{ n: s(a) }, { op: '−' }, { n: B.s }, { op: '×' }, { n: C.s }];
+      help = `先算 ${B.s} × ${C.s} ＝ ${s(p)}`;
+    } else if (form === 4) { // (a−b)÷c
+      const m = R * C.m / 1000; if (!Number.isInteger(m)) return null;
+      a = m + B.m;
+      toks = [{ op: '(' }, { n: s(a) }, { op: '−' }, { n: B.s }, { op: ')' }, { op: '÷' }, { n: C.s }];
+      help = `先算 ${s(a)} − ${B.s} ＝ ${s(m)}`;
+    } else if (form === 5) { // a×b÷c
+      const p = R * C.m / 1000; if (!Number.isInteger(p)) return null;
+      a = p * 1000 / B.m; if (!Number.isInteger(a)) return null;
+      toks = [{ n: s(a) }, { op: '×' }, { n: B.s }, { op: '÷' }, { n: C.s }];
+      help = `先算 ${s(a)} × ${B.s} ＝ ${s(p)}`;
+    } else { // 1−a×c
+      a = (1000 - R) * 1000 / C.m; if (!Number.isInteger(a)) return null;
+      toks = [{ n: 1 }, { op: '−' }, { n: s(a) }, { op: '×' }, { n: C.s }];
+      help = `先算 ${s(a)} × ${C.s} ＝ ${s(1000 - R)}`;
+    }
+    if (!whole(a)) return null;
+    return { toks, help, a };
+  };
+  // One shape per block, then a redraw of the shape: the seven are not equally
+  // easy to hit, and a single loop would hand most of the volume to the easy
+  // ones (a÷b÷c and a÷(b×c) are the same arithmetic and share their draw).
+  for (let block = 0; block < 16; block += 1) {
+    const form = r(0, 6);
+    for (let g = 0; g < 120; g += 1) {
+      const B = term(); const C = term(); if (!B || !C) continue;
+      for (const R of cands(form === 6, C)) {
+        const b = build(form, B, C, R); if (!b) continue;
+        const grid = buildH([...b.toks, { op: '＝' }, { ans: s(R) }], { title: '小数混合', text: b.toks.map((t) => t.n ?? t.op).join(''), answer: s(R), help: b.help });
+        if (grid.cols > 16) continue;
+        return grid;
+      }
+    }
+  }
+  throw new Error('dec3Four');
+}
+
+// 分数加减混合 (五下·一 分数混合运算): a three-term chain a/b − c/d − e/f, or
+// four terms in two pairs that each add up to 1 (1/4＋3/4＋2/5＋3/5＝2, the
+// 交换律 / 结合律 of the textbook). Denominators 2-9, results positive and
+// shown in lowest terms. The form is drawn first, because the chain needs
+// three distinct denominators with a small common one and is the rarer one.
+function fracMix(rng) {
+  const r = R(rng);
+  // One shape per block, because the chain needs three distinct denominators
+  // with a small common one and is much the rarer draw of the two.
+  for (let block = 0; block < 8; block += 1) {
+    if (rng() < 0.5) {
+      for (let g = 0; g < 150; g += 1) {
+        const d1 = r(2, 9); const d2 = r(2, 9); const d3 = r(2, 9);
+        if (d1 === d2 || d2 === d3 || d1 === d3) continue;
+        const L = lcm(lcm(d1, d2), d3); if (L > 36) continue;
+        const n2 = r(1, d2 - 1); const n3 = r(1, d3 - 1);
+        if (gcd(n2, d2) !== 1 || gcd(n3, d3) !== 1) continue;
+        // About a quarter of the chains start from 1.
+        const one = rng() < 0.25;
+        const n1 = r(1, d1 - 1); if (!one && gcd(n1, d1) !== 1) continue;
+        const res = one ? L - n2 * (L / d2) - n3 * (L / d3) : n1 * (L / d1) - n2 * (L / d2) - n3 * (L / d3);
+        if (res <= 0) continue;
+        const [rn, rd] = reduce(res, L); if (rd === 1) continue;
+        const a = fracAns(rn, rd, true);
+        const grid = buildH([one ? { n: 1 } : fracTok(n1, d1), { op: '−' }, fracTok(n2, d2), { op: '−' }, fracTok(n3, d3), { op: '＝' }, a], { title: '分数加减混合', text: `${one ? 1 : `${n1}/${d1}`} − ${n2}/${d2} − ${n3}/${d3}`, answer: a.text, help: `通分后分母是 ${L}` });
+        if (grid.cols > 16) continue;
+        return grid;
+      }
+    } else {
+      for (let g = 0; g < 30; g += 1) {
+        const d1 = r(2, 9); const d2 = r(2, 9); if (d1 === d2) continue;
+        const n1 = r(1, d1 - 1); if (n1 * 2 === d1) continue;
+        const n2 = r(1, d2 - 1); if (n2 * 2 === d2) continue;
+        // 交换律: each pair may be shown in either order (1/4＋3/4 / 3/4＋1/4).
+        const f = rng() < 0.5 ? [n1, d1 - n1, d1] : [d1 - n1, n1, d1];
+        const t = rng() < 0.5 ? [n2, d2 - n2, d2] : [d2 - n2, n2, d2];
+        const grid = buildH([fracTok(f[0], f[2]), { op: '＋' }, fracTok(f[1], f[2]), { op: '＋' }, fracTok(t[0], t[2]), { op: '＋' }, fracTok(t[1], t[2]), { op: '＝' }, { ans: 2 }], { title: '分数加减混合', text: `${f[0]}/${f[2]} ＋ ${f[1]}/${f[2]} ＋ ${t[0]}/${t[2]} ＋ ${t[1]}/${t[2]}`, answer: '2', help: `先算 ${f[0]}/${f[2]} ＋ ${f[1]}/${f[2]} ＝ 1` });
+        if (grid.cols > 16) continue;
+        return grid;
+      }
+    }
+  }
+  throw new Error('fracMix');
+}
+
 const GEN = {
   compose(rng, { total }) {
     const a = R(rng)(1, total - 1);
@@ -619,21 +761,92 @@ const GEN = {
     }
     throw new Error('vdec');
   },
+  // 小数除以整数 (grade 5). Three shapes of 精打细算 / 打扫卫生, drawn about
+  // evenly: ① divisor 2-9, one-decimal quotient whose whole part reaches two
+  // digits (57.5÷5＝11.5, 77.4÷6＝12.9); ② two-digit divisor, one-decimal
+  // quotient (28.8÷24＝1.2, 96.6÷42＝2.3); ③ a zero is brought down after the
+  // remainder, so the quotient has 2-3 decimals and the dividend may be a
+  // whole number (18.9÷6＝3.15, 0.63÷9＝0.07, 4÷25＝0.16, 19÷20＝0.95).
+  // Every shape divides exactly and never ends in 0.
   decDivInt(rng) {
     const r = R(rng);
-    for (let g = 0; g < 200; g++) {
-      const d = r(2, 9); const q = r(11, 99); if (q % 10 === 0) continue;
-      const D = q * d; if (D % 10 === 0 || D > 999) continue;
-      return buildH([{ n: decStr(D, 1) }, { op: '÷' }, { n: d }, { op: '＝' }, { ans: decStr(q, 1) }], { title: '小数除法', text: `${decStr(D, 1)} ÷ ${d}`, answer: decStr(q, 1), help: `想一想 ${D} ÷ ${d}` });
+    for (let g = 0; g < 400; g++) {
+      const form = r(0, 2);
+      let D; let d; let q; // the dividend, divisor and quotient as strings
+      if (form < 2) {
+        // ①② scaled by 10: the quotient always has exactly one decimal and the
+        // dividend stays under 100 (D1 ≤ 999), so q1 is drawn from d's range.
+        d = form === 0 ? r(2, 9) : r(11, 90);
+        const qMax = Math.floor(999 / d);
+        if (qMax < 11) continue;
+        const q1 = r(11, qMax); if (q1 % 10 === 0 || (q1 * d) % 10 === 0) continue;
+        D = decMin(q1 * d, 1); q = decMin(q1, 1);
+      } else if (rng() < 0.35) {
+        // ③ with a whole dividend: 4÷25＝0.16, 19÷20＝0.95, 18÷24＝0.75. The
+        // quotient is built back from it, so the division stays exact.
+        const Dd = r(2, 99);
+        d = rng() < 0.5 ? r(2, 9) : r(11, 99);
+        if (100 * Dd % d !== 0) continue;
+        const Q = 100 * Dd / d;
+        if (Q % 10 === 0) continue;
+        D = String(Dd); q = decMin(Q, 2);
+      } else {
+        // ③ scaled by 10^pc: 2 or 3 decimals in the quotient. The divisor is
+        // drawn first so the quotient can be drawn inside the range that keeps
+        // the dividend below 100, as in 打扫卫生.
+        const pc = r(0, 1) ? 3 : 2;
+        d = rng() < 0.5 ? r(2, 9) : r(11, 99);
+        const qMax = Math.floor(9990 / d);
+        if (qMax < 2) continue;
+        const Q = r(2, qMax);
+        if (pc === 3 ? Q % 100 === 0 : Q % 10 === 0) continue;
+        D = decMin(d * Q * 10 ** (3 - pc), 3); q = decMin(Q, pc);
+      }
+      const grid = buildH([{ n: D }, { op: '÷' }, { n: d }, { op: '＝' }, { ans: q }], { title: '小数除法', text: `${D} ÷ ${d}`, answer: q, help: form === 2 ? `余数后面补 0 再除` : `想一想 ${D} ÷ ${d}` });
+      if (grid.cols > 16) continue;
+      return grid;
     }
     throw new Error('decDivInt');
   },
+  // 小数除以小数 (grade 5). One shape, as wide as the textbook: the divisor is
+  // a one- or two-decimal number or a two-digit integer, the dividend a whole
+  // number or a decimal of up to 3 places, and the quotient a positive integer
+  // (5.1÷0.3＝17, 5.28÷0.03＝176, 32÷0.08＝400) or a decimal of 1-2 places
+  // (54÷7.2＝7.5, 0.12÷0.25＝0.48, 27.9÷45＝0.62). Only exact divisions:
+  // repeating quotients are out of scope (循环小数).
   decDivDec(rng) {
     const r = R(rng);
-    const d = r(2, 9); const q = r(2, 9);
-    if (rng() < 0.5) { const D = d * q; return buildH([{ n: decStr(D, 1) }, { op: '÷' }, { n: decStr(d, 1) }, { op: '＝' }, { ans: q }], { title: '小数除法', text: `${decStr(D, 1)} ÷ ${decStr(d, 1)}`, answer: String(q), help: `和 ${D} ÷ ${d} 一样` }); }
-    const d2 = r(11, 29); const D2 = d2 * q;
-    return buildH([{ n: decStr(D2, 1) }, { op: '÷' }, { n: decStr(d2, 1) }, { op: '＝' }, { ans: q }], { title: '小数除法', text: `${decStr(D2, 1)} ÷ ${decStr(d2, 1)}`, answer: String(q), help: `和 ${D2} ÷ ${d2} 一样` });
+    for (let g = 0; g < 600; g++) {
+      // Divisor: 0 one-decimal, 1 two-decimal, 2 two-digit integer.
+      const df = r(0, 2);
+      const dp = df === 1 ? 2 : df === 0 ? 1 : 0;
+      const dv = df === 1 ? r(3, 999) : df === 0 ? r(2, 99) : r(10, 99);
+      if (dp && dv % 10 === 0) continue;
+      // Quotient: 0 whole number, 1 one decimal, 2 two decimals.
+      const qp = r(0, 2);
+      const qv = qp === 0 ? r(2, 999) : r(2, 9999);
+      if (qp && qv % 10 === 0) continue;
+      // Dividend = divisor × quotient, exact to at most 3 decimal places.
+      const scale = dp + qp; let v = dv * qv; let sc = scale;
+      while (sc > 3 && v % 10 === 0) { v /= 10; sc -= 1; }
+      // decMin already drops the trailing zeros, so a whole dividend like
+      // 7÷0.35＝20 or 32÷0.08＝400 comes out right and never as 7.00.
+      if (sc > 3) continue;
+      // The dividend is a whole number or a 1-2 decimal one (5.28÷1.2 and
+      // 0.12÷0.25 come out that way because v ends in 0 there), never 3.
+      const D = decMin(v, sc);
+      if (D.includes('.') && D.split('.')[1].length > 2) continue;
+      if (Number(D) > 999) continue;
+      const q = decMin(qv, qp); const d = decMin(dv, dp);
+      // Both sides are scaled by one and the same power of 10, which is what
+      // 谁打电话的时间长 does; an integer divisor needs no scaling.
+      const f = Math.max(sc, dp); const A = v * 10 ** (f - sc); const B = dv * 10 ** (f - dp);
+      const help = dp === 0 ? '和整数除法一样' : (A <= 9999 && B <= 9999 ? `和 ${A} ÷ ${B} 一样` : `两个数的小数点同时移动 ${f} 位`);
+      const grid = buildH([{ n: D }, { op: '÷' }, { n: d }, { op: '＝' }, { ans: q }], { title: '小数除法', text: `${D} ÷ ${d}`, answer: q, help });
+      if (grid.cols > 16) continue;
+      return grid;
+    }
+    throw new Error('decDivDec');
   },
   gcdlcm(rng, { kind }) {
     const r = R(rng);
@@ -684,11 +897,23 @@ const GEN = {
   // place, help names the place below it (万位题显示「千位四舍五入」) — two
   // different arrays on purpose. The 亿 form draws from 1.05亿–1.99亿 so the
   // rounded result keeps 9 digits (结果位数不增加).
-  round(rng) {
+  // dec: keep two decimals of a 3-5 decimal number (五上·一 除得尽吗 /
+  // 人民币兑换). The thousandths digit is not 0, so the rounding really moves
+  // the number, and the rounded result never ends in 0.
+  round(rng, { dec } = {}) {
     const r = R(rng);
     const nm = { 1: '十', 2: '百', 3: '千', 4: '万', 5: '十万', 8: '亿' };
     const below = { 1: '个', 2: '十', 3: '百', 4: '千', 5: '万', 8: '千万' };
     for (let g = 0; g < 400; g++) {
+      if (dec) {
+        const p = r(3, 5);
+        const n = r(10 ** p, 10 ** (p + 3) - 1);
+        if (n % 10 === 0 || Math.floor(n / 10 ** (p - 3)) % 10 === 0) continue; // last and thousandths
+        const A = Math.round(n / 10 ** (p - 2)) * 10 ** (p - 2);
+        if ((A / 10 ** (p - 2)) % 10 === 0) continue; // the answer ends in 0
+        const ans = decMin(A, p);
+        return buildH([{ n: decMin(n, p) }, { w: '的' }, { br: true }, { w: '保留两位小数' }, { op: '→' }, { ans }], { title: '近似数', text: `${decMin(n, p)}保留两位小数`, answer: ans, help: '看千分位四舍五入' });
+      }
       const pl = pickOf(rng, [1, 2, 3, 4, 5, 8]);
       const lo = pl === 8 ? 105000000 : pl === 5 ? 100001 : pl === 4 ? 10001 : pl === 3 ? 10001 : 1001;
       const hi = pl === 8 ? 199000000 : pl === 5 ? 999999 : pl === 4 ? 999999 : 99999;
@@ -805,8 +1030,10 @@ const GEN = {
   },
   // 小数加减混合 (歌手大赛): five shapes over 1-2 place decimals and whole
   // numbers, positive results without trailing zeros (9.43−(8.65＋0.40),
-  // 5−(4.19−2.83)).
-  dec3(rng) {
+  // 5−(4.19−2.83)). With `four` (grade 5) the seven ×/÷ shapes of 调查
+  // 「生活垃圾」 replace them; see dec3Four.
+  dec3(rng, { four } = {}) {
+    if (four) return dec3Four(rng);
     const r = R(rng);
     const hdec = (v) => { let s = decStr(v, 2); while (s.endsWith('0') && s.includes('.')) s = s.slice(0, -1); return s.endsWith('.') ? s.slice(0, -1) : s; };
     const term = () => {
@@ -893,7 +1120,7 @@ const GEN = {
     const r = R(rng);
     for (let g = 0; g < 600; g++) {
       if (op === 'reduce') {
-        const d = r(2, 9); const n = r(1, d - 1); const k = r(2, 6); if (gcd(n, d) !== 1) continue;
+        const d = r(2, dMax || 9); const n = r(1, d - 1); const k = r(2, 6); if (gcd(n, d) !== 1) continue;
         return buildH([fracTok(n * k, d * k), { op: '＝' }, { fa: [n, d] }], { title: '约分', text: `${n * k}/${d * k}`, answer: `${n}/${d}`, help: `除以 ${k}` });
       }
       if (op === 'addsub' && same) {
@@ -918,7 +1145,7 @@ const GEN = {
         return buildH([fracTok(n1, d), { op: add ? '＋' : '−' }, fracTok(n2, d), { op: '＝' }, { fa: [res, d] }], { title: '分数加减', text: `${n1}/${d} ${add ? '+' : '−'} ${n2}/${d}`, answer: `${res}/${d}`, help: `分母仍是 ${d}` });
       }
       if (op === 'addsub') {
-        const d1 = r(2, 9); const d2 = r(2, 9); if (d1 === d2) continue;
+        const d1 = r(2, dMax || 9); const d2 = r(2, dMax || 9); if (d1 === d2) continue;
         const n1 = r(1, d1 - 1); const n2 = r(1, d2 - 1); if (gcd(n1, d1) !== 1 || gcd(n2, d2) !== 1) continue;
         const add = rng() < 0.55; const L = lcm(d1, d2); if (L > 36) continue;
         const res = add ? n1 * (L / d1) + n2 * (L / d2) : n1 * (L / d1) - n2 * (L / d2);
@@ -927,13 +1154,57 @@ const GEN = {
         return buildH([fracTok(n1, d1), { op: add ? '＋' : '−' }, fracTok(n2, d2), { op: '＝' }, { fa: [rn, rd] }], { title: '分数加减', text: `${n1}/${d1} ${add ? '+' : '−'} ${n2}/${d2}`, answer: `${rn}/${rd}`, help: `通分后分母是 ${L}` });
       }
       if (op === 'muldivInt') {
-        const d = r(2, 9); const n = r(1, d - 1); const k = r(2, 9); if (gcd(n, d) !== 1) continue;
+        const d = r(2, dMax || 9); const n = r(1, d - 1); const k = r(2, 9); if (gcd(n, d) !== 1) continue;
         const mul = rng() < 0.5;
         const [rn, rd] = mul ? reduce(n * k, d) : reduce(n, d * k);
         if (rd === 1) continue;
         const a = fracAns(rn, rd, true);
         return buildH([fracTok(n, d), { op: mul ? '×' : '÷' }, { n: k }, { op: '＝' }, a], { title: '分数和整数', text: `${n}/${d} ${mul ? '×' : '÷'} ${k}`, answer: a.text, help: mul ? `分子乘 ${k}` : `分母乘 ${k}` });
       }
+      // 分数与除法 (五上·五): the quotient of a ÷ b written as a fraction. Exact
+      // divisions stay in 除法 (g3-div-basic), so b never divides a.
+      if (op === 'quo') {
+        const b = r(2, 9); const a = r(1, 99); if (a % b === 0) continue;
+        const [rn, rd] = reduce(a, b);
+        const t = fracAns(rn, rd, true);
+        return buildH([{ n: a }, { op: '÷' }, { n: b }, { op: '＝' }, t], { title: '分数与除法', text: `${a} ÷ ${b}`, answer: t.text, help: `平均分成 ${b} 份` });
+      }
+      // 整数乘分数 (五下·三): always a whole number on the left, so the
+      // fraction-on-the-left shapes stay in 分数乘除整数.
+      if (op === 'wholeMul') {
+        const d = r(2, 12); const n = r(1, d - 1); if (gcd(n, d) !== 1) continue;
+        // Half of the time the product is a whole number (6×2/3＝4, 20×1/4＝5).
+        const A = rng() < 0.5 ? d * r(1, Math.max(1, Math.floor(999 / d))) : r(2, 99);
+        const [rn, rd] = reduce(A * n, d);
+        const a = rd === 1 ? { ans: rn } : fracAns(rn, rd, true);
+        const grid = buildH([{ n: A }, { op: '×' }, fracTok(n, d), { op: '＝' }, a], { title: '分数和整数', text: `${A} × ${n}/${d}`, answer: rd === 1 ? String(rn) : a.text, help: `分子乘 ${A}` });
+        if (grid.cols > 16) continue;
+        return grid;
+      }
+      // 整数除以分数 (五下·五): whole number ÷ proper fraction. The quotient is
+      // scaled by 10 first, so a repeating one is redrawn (v % n).
+      if (op === 'wholeDiv') {
+        const A = r(2, 99); const d = r(2, 13); const n = r(1, d - 1); if (gcd(n, d) !== 1) continue;
+        const v = A * d * 10; if (v % n !== 0) continue;
+        const q = v / n; if (q > 9990) continue;
+        const ans = q % 10 === 0 ? String(q / 10) : decStr(q, 1);
+        return buildH([{ n: A }, { op: '÷' }, fracTok(n, d), { op: '＝' }, { ans }], { title: '分数和整数', text: `${A} ÷ ${n}/${d}`, answer: ans, help: `把 ${n}/${d} 颠倒过来再乘` });
+      }
+      // 分数与小数 (五下·一 分数王国 / 小数王国): the fraction is turned into
+      // the decimal that ends it, or the other way round. No comparison forms.
+      if (op === 'conv') {
+        if (rng() < 0.5) {
+          const d = pickOf(rng, [2, 4, 5, 8, 10, 20, 25, 40, 50, 100]);
+          const n = r(1, d - 1); if (gcd(n, d) !== 1) continue;
+          let p = 1; while (10 ** p % d !== 0) p += 1;
+          const ans = decStr(n * 10 ** p / d, p);
+          return buildH([fracTok(n, d), { op: '＝' }, { ans }], { title: '分数与小数', text: `${n}/${d}`, answer: ans, help: `分母是 ${d}` });
+        }
+        const p = r(2, 3); const v = r(1, 10 ** p - 1); if (v % 10 === 0) continue;
+        const [rn, rd] = reduce(v, 10 ** p);
+        return buildH([{ n: decStr(v, p) }, { op: '＝' }, { fa: [rn, rd] }], { title: '分数与小数', text: decStr(v, p), answer: `${rn}/${rd}`, help: `分母是 ${10 ** p}` });
+      }
+      if (op === 'mix') return fracMix(rng);
       if (op === 'mul' || op === 'div') {
         const d1 = r(2, 9); const n1 = r(1, 9); const d2 = r(2, 9); const n2 = r(1, 9);
         if (gcd(n1, d1) !== 1 || gcd(n2, d2) !== 1 || n1 === d1 || n2 === d2) continue;

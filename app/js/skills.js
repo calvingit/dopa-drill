@@ -83,27 +83,48 @@ export const SKILLS = [
   // compatibility (docs/curriculum.md, grade 4 note).
   { id: 'g3-vmul-3x2', name: '三位数乘两位数', grade: 4, lane: 1, req: ['g3-vmul-2x2', 'g3-vmul-3x1'], gen: ['vmul', { da: 3, db: 2 }] },
   { id: 'g4-vmul-3x2-zero', name: '末尾有0的三位数乘两位数', grade: 4, lane: 1, req: ['g3-vmul-3x2'], gen: ['vmul', { da: 3, db: 2, aEnd: 'zero', bEnd: true }] },
+  // Moved here from grade 5 by the 2026-09-30 grade-5 alignment decision: the
+  // textbook lesson is 四下·三 小数乘法, neither grade-5 book has one. The g5-
+  // id is kept for saved-progress compatibility (docs/curriculum.md, grade 4
+  // note); name, generator and prerequisites are unchanged.
+  { id: 'g5-dec-mul', name: '小数乘小数', grade: 4, lane: 2, req: ['g4-dec-mul'], gen: ['vmul', { da: 2, db: 2, pa: 1, pb: 1 }] },
 
   // ---------------------------------------------------------------- grade 5
-  // Moved here from grade 4 by the 2026-09-30 alignment ruling: neither
+  // Moved here from grade 4 by the 2026-09-30 alignment decision: neither
   // grade-4 textbook teaches them. Ids, names, generators and prerequisites
   // are unchanged for saved-progress compatibility (docs/curriculum.md,
-  // grade 5 note); their exact textbook units are up to the grade-5 round.
+  // grade 5 note). g4-frac-mixed's textbook unit is still undecided.
   { id: 'g4-dec-div', name: '小数除以整数', grade: 5, lane: 2, req: ['g4-dec-mul', 'g4-vdiv-2d1'], gen: ['decDivInt', {}] },
   { id: 'g4-frac-mixed', name: '带分数加减', grade: 5, lane: 2, req: ['g3-frac-same'], gen: ['frac', { op: 'addsub', same: true, mixed: true }] },
-  { id: 'g5-dec-mul', name: '小数乘小数', grade: 5, lane: 2, req: ['g4-dec-mul'], gen: ['vmul', { da: 2, db: 2, pa: 1, pb: 1 }] },
   { id: 'g5-dec-div', name: '小数除以小数', grade: 5, lane: 2, req: ['g4-dec-div', 'g5-dec-mul'], gen: ['decDivDec', {}] },
   { id: 'g5-gcd', name: '最大公约数', grade: 5, lane: 3, req: ['g3-div-basic'], gen: ['gcdlcm', { kind: 'gcd' }] },
   { id: 'g5-lcm', name: '最小公倍数', grade: 5, lane: 3, req: ['g5-gcd'], gen: ['gcdlcm', { kind: 'lcm' }] },
-  { id: 'g5-frac-reduce', name: '约分', grade: 5, lane: 2, req: ['g5-gcd', 'g4-frac-mixed'], gen: ['frac', { op: 'reduce' }] },
-  { id: 'g5-frac-diff', name: '异分母分数', grade: 5, lane: 2, req: ['g5-frac-reduce', 'g5-lcm'], gen: ['frac', { op: 'addsub', same: false }] },
-  { id: 'g5-frac-int', name: '分数乘除整数', grade: 5, lane: 2, req: ['g5-frac-reduce'], gen: ['frac', { op: 'muldivInt' }] },
-  { id: 'g5-percent', name: '百分数', grade: 5, lane: 3, req: ['g4-dec-mul'], gen: ['percent', {}] },
+  { id: 'g5-frac-reduce', name: '约分', grade: 5, lane: 2, req: ['g5-gcd', 'g4-frac-mixed'], gen: ['frac', { op: 'reduce', dMax: 16 }] },
+  { id: 'g5-frac-diff', name: '异分母分数', grade: 5, lane: 2, req: ['g5-frac-reduce', 'g5-lcm'], gen: ['frac', { op: 'addsub', same: false, dMax: 12 }] },
+  { id: 'g5-frac-quo', name: '分数与除法', grade: 5, lane: 2, req: ['g3-div-basic', 'g2-frac-of'], gen: ['frac', { op: 'quo' }] },
+  // g5-frac-quo is a prerequisite: 「分数与除法」 comes before 分数乘除整数.
+  { id: 'g5-frac-int', name: '分数乘除整数', grade: 5, lane: 2, req: ['g5-frac-reduce', 'g5-frac-quo'], gen: ['frac', { op: 'muldivInt', dMax: 16 }] },
+  { id: 'g5-frac-intmul', name: '整数乘分数', grade: 5, lane: 2, req: ['g5-frac-int'], gen: ['frac', { op: 'wholeMul' }] },
+  { id: 'g5-frac-intdiv', name: '整数除以分数', grade: 5, lane: 2, req: ['g6-frac-div', 'g3-div-basic'], gen: ['frac', { op: 'wholeDiv' }] },
+  // Moved here from grade 6 by the 2026-09-30 grade-5 alignment decision: both
+  // lessons are in the grade-5 books (五下·三 分数乘法（三）、五下·五 分数除法
+  // （二）). Policy exception — "no moving forward" yields to filling the gap;
+  // only the grade field changed, so reverting is a one-line change. The g6-
+  // ids are kept for saved-progress compatibility (docs/curriculum.md,
+  // grade 5 note).
+  { id: 'g6-frac-mul', name: '分数乘分数', grade: 5, lane: 2, req: ['g5-frac-int'], gen: ['frac', { op: 'mul' }] },
+  { id: 'g6-frac-div', name: '分数除以分数', grade: 5, lane: 2, req: ['g6-frac-mul'], gen: ['frac', { op: 'div' }] },
+  { id: 'g5-frac-conv', name: '分数与小数', grade: 5, lane: 2, req: ['g5-frac-diff', 'g4-dec-add2'], gen: ['frac', { op: 'conv' }] },
+  { id: 'g5-frac-mix', name: '分数加减混合', grade: 5, lane: 2, req: ['g5-frac-diff', 'g5-frac-reduce'], gen: ['frac', { op: 'mix' }] },
+  { id: 'g5-dec-round', name: '保留两位小数', grade: 5, lane: 2, req: ['g4-round'], gen: ['round', { dec: true }] },
+  { id: 'g5-dec-mix', name: '小数混合运算', grade: 5, lane: 2, req: ['g4-dec-mul', 'g5-dec-mul', 'g5-dec-div'], gen: ['dec3', { four: true }] },
 
   // ---------------------------------------------------------------- grade 6
-  { id: 'g6-frac-mul', name: '分数乘分数', grade: 6, lane: 2, req: ['g5-frac-int'], gen: ['frac', { op: 'mul' }] },
-  { id: 'g6-frac-div', name: '分数除以分数', grade: 6, lane: 2, req: ['g6-frac-mul'], gen: ['frac', { op: 'div' }] },
-  { id: 'g6-frac-dec', name: '小数与分数的计算', grade: 6, lane: 2, req: ['g6-frac-div', 'g5-dec-div'], gen: ['frac', { op: 'decimal' }] },
+  { id: 'g6-frac-dec', name: '小数乘分数', grade: 6, lane: 2, req: ['g6-frac-div', 'g5-dec-div'], gen: ['frac', { op: 'decimal' }] },
+  // Moved here from grade 5 by the 2026-09-30 grade-5 alignment decision: the
+  // lesson is 六上·七 百分数的应用, neither grade-5 book has one. Only the
+  // grade field changed, so the g5- id stays valid for saved progress.
+  { id: 'g5-percent', name: '百分数', grade: 6, lane: 3, req: ['g4-dec-mul'], gen: ['percent', {}] },
   { id: 'g6-ratio', name: '相等的比', grade: 6, lane: 3, req: ['g5-lcm'], gen: ['ratio', {}] },
   { id: 'g6-letter', name: '求x', grade: 6, lane: 3, req: ['g4-order'], gen: ['letter', {}] },
 ];
