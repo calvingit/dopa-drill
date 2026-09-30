@@ -117,9 +117,15 @@ function addDots(cells, c, rows, hidden = false) { rows.forEach((r) => cells.pus
 
 // ================================================================ column multiplication
 // a × b with b of 1 or 2 digits; pa/pb decimal places (product point is placed at the end).
+// Sub-1 decimals show their leading 0 (0.2); the product's leading 0
+// (0.2 × 4 ＝ 0.8) is typed like any digit, as in column add/sub.
 function buildMul(a, b, pa = 0, pb = 0) {
   const prod = a * b;
-  const as = String(a); const bs = String(b); const ps = String(prod);
+  const P = pa + pb;
+  const as0 = String(a); const bs0 = String(b); const ps0 = String(prod);
+  const as = pa && a < 10 ** pa ? `0${as0}` : as0;
+  const bs = pb && b < 10 ** pb ? `0${bs0}` : bs0;
+  const ps = P && prod < 10 ** P ? `0${ps0}` : ps0;
   const cols = Math.max(ps.length, as.length, bs.length + 1) + 1;
   const cells = [];
   [...as].forEach((d, i) => cells.push({ id: `a${cols - as.length + i}`, r: 1, c: cols - as.length + i, text: d, kind: 'given' }));
@@ -130,22 +136,24 @@ function buildMul(a, b, pa = 0, pb = 0) {
   const lines = [{ r: 2, c0: 0, c1: cols - 1 }];
   const steps = [];
   const bd = digits(b).reverse();
-  const partialRow = (row, factor, shift, tag) => {
+  const partialRow = (row, factor, shift, tag, lead) => {
     const part = String(a * factor);
+    const str = (lead ? '0' : '') + part;
     let carry = 0;
     const ad = digits(a).reverse();
-    for (let i = 0; i < part.length; i++) {
+    for (let i = 0; i < str.length; i++) {
       const c = cols - 1 - shift - i;
-      const digit = part[part.length - 1 - i];
+      const digit = str[str.length - 1 - i];
       cells.push({ id: `${tag}${c}`, r: row, c, text: digit, kind: 'input' });
       const x = ad[i];
-      const help = x !== undefined ? { ids: [`a${c + shift}`, `b${cols - 1 - shift}`], text: `${x} × ${factor}${carry ? ` ＋ ${carry}` : ''}` } : { ids: [], text: `进位的 ${carry}` };
+      const help = i >= part.length ? { ids: [], text: '先按整数乘，再点上小数点' }
+        : x !== undefined ? { ids: [`a${c + shift}`, `b${cols - 1 - shift}`], text: `${x} × ${factor}${carry ? ` ＋ ${carry}` : ''}` } : { ids: [], text: `进位的 ${carry}` };
       carry = x !== undefined ? Math.floor((x * factor + carry) / 10) : 0;
-      steps.push({ cell: `${tag}${c}`, digit, label: `乘 ${factor}`, after: [], help });
+      steps.push({ cell: `${tag}${c}`, digit, label: i >= part.length ? '补 0' : `乘 ${factor}`, after: [], help });
     }
   };
-  if (bs.length === 1) {
-    partialRow(3, b, 0, 's');
+  if (bs0.length === 1) {
+    partialRow(3, b, 0, 's', ps.length > ps0.length);
   } else {
     partialRow(3, bd[0], 0, 'p');
     partialRow(4, bd[1], 1, 'q');
@@ -157,13 +165,12 @@ function buildMul(a, b, pa = 0, pb = 0) {
       const x = Math.floor(p1 / 10 ** i) % 10; const y = i ? Math.floor(p2 / 10 ** i) % 10 : 0;
       const digit = ps[ps.length - 1 - i];
       cells.push({ id: `s${c}`, r: 5, c, text: digit, kind: 'input' });
-      const help = { ids: [`p${c}`, `q${c}`], text: `${x}${i ? ` ＋ ${y}` : ''}${carry ? ` ＋ ${carry}` : ''}` };
+      const help = i >= ps0.length ? { ids: [], text: '先按整数乘，再点上小数点' } : { ids: [`p${c}`, `q${c}`], text: `${x}${i ? ` ＋ ${y}` : ''}${carry ? ` ＋ ${carry}` : ''}` };
       carry = Math.floor((x + y + carry) / 10);
-      steps.push({ cell: `s${c}`, digit, label: `相加（${PLACE[i]}）`, after: [], help });
+      steps.push({ cell: `s${c}`, digit, label: i >= ps0.length ? '补 0' : `相加（${PLACE[i]}）`, after: [], help });
     }
   }
-  const P = pa + pb;
-  const lastRow = bs.length === 1 ? 3 : 5;
+  const lastRow = bs0.length === 1 ? 3 : 5;
   if (P) { cells.push({ id: 'dotp', r: lastRow, c: cols - 1 - P, text: '.', kind: 'auto' }); steps[steps.length - 1].after.push('dotp'); }
   const text = `${decStr(a, pa)} × ${decStr(b, pb)}`;
   return { kind: 'mul', a, b, answer: decStr(prod, P), text, title: P ? '小数乘法' : '乘法', rows: lastRow + 1, cols, cells, lines, steps, bracket: null };
@@ -559,24 +566,29 @@ const GEN = {
     }
     throw new Error('vsub');
   },
-  vmul(rng, { da, db, pa = 0, pb = 0, aMax, aEnd }) {
+  vmul(rng, { da, db, pa = 0, pb = 0, aMax, aEnd, bEnd, subOne }) {
     const r = R(rng);
     for (let g = 0; g < 400; g++) {
-      const a = nDigit(r, da); const b = db === 1 ? r(2, 9) : nDigit(r, db);
+      const a = nDigit(r, range(da, rng)); const b = db === 1 ? r(2, 9) : nDigit(r, db);
       // aMax is a replacing upper bound on the multiplicand; aEnd: 'zero'
-      // requires it to end in 0 (末尾有0的乘法), otherwise it must not.
-      if (aEnd ? a % 10 !== 0 : a % 10 === 0 || (db > 1 && b % 10 === 0)) continue;
+      // requires it to end in 0 (末尾有0的乘法), otherwise it must not. With
+      // bEnd the two endings split about 50/50: half keep a ending in 0 with
+      // b free (460×23), the rest have only b ending in 0 (632×50).
+      if (aEnd ? (bEnd && rng() >= 0.5 ? a % 10 === 0 || b % 10 !== 0 : a % 10 !== 0)
+               : a % 10 === 0 || (db > 1 && b % 10 === 0)) continue;
       if (aMax && a > aMax) continue;
       const P = pa + pb; const prod = a * b;
-      if (P && (prod % 10 === 0 || prod < 10 ** P)) continue;
+      // subOne lets the product drop below 1 (0.2 × 4 ＝ 0.8); its leading 0
+      // is typed, and products ending in 0 (1.0) stay excluded.
+      if (P && (prod % 10 === 0 || (prod < 10 ** P && !subOne))) continue;
       return buildMul(a, b, pa, pb);
     }
     throw new Error('vmul');
   },
-  vdiv(rng, { dd, ds }) {
+  vdiv(rng, { dd, ds, dsMax }) {
     const r = R(rng);
     for (let g = 0; g < 600; g++) {
-      const d = ds === 1 ? r(2, 9) : r(11, 49);
+      const d = ds === 1 ? r(2, 9) : r(11, dsMax || 49);
       const D = nDigit(r, dd);
       if (D < d * 2) continue;
       const q = Math.floor(D / d);
@@ -639,25 +651,216 @@ const GEN = {
     const r = R(rng);
     for (let g = 0; g < 400; g++) {
       const a = r(2, 9); const b = r(2, 9); const c = r(2, 9);
-      const form = r(0, 3);
+      // Forms 0-3 are the original set; 4-5 add a multiplication plus/minus a
+      // division (22×3＋24÷4), 6 the bracket of 买文具: x−[b×(c−d)] and
+      // x÷[b×(c−d)] (9÷[3×(5−2)]＝1, 288−[8×(26−14)]).
+      const form = r(0, 6);
       let toks; let ans; let help;
       if (form === 0) { ans = a + b * c; toks = [{ n: a }, { op: '＋' }, { n: b }, { op: '×' }, { n: c }]; help = `先算 ${b} × ${c}`; }
       else if (form === 1) { ans = a * (b + c); toks = [{ n: a }, { op: '×' }, { op: '(' }, { n: b }, { op: '＋' }, { n: c }, { op: ')' }]; help = `先算 ${b} ＋ ${c}`; }
       else if (form === 2) { if (a <= b) continue; ans = (a - b) * c; toks = [{ op: '(' }, { n: a }, { op: '−' }, { n: b }, { op: ')' }, { op: '×' }, { n: c }]; help = `先算 ${a} − ${b}`; }
-      else { const bc = b * c; const x = r(bc + 1, bc + 30); ans = x - bc; toks = [{ n: x }, { op: '−' }, { n: b }, { op: '×' }, { n: c }]; help = `先算 ${b} × ${c}`; }
+      else if (form === 3) { const bc = b * c; const x = r(bc + 1, bc + 30); ans = x - bc; toks = [{ n: x }, { op: '−' }, { n: b }, { op: '×' }, { n: c }]; help = `先算 ${b} × ${c}`; }
+      else if (form <= 5) {
+        const d = r(2, 9); const q = r(2, 9); const cd = q * d;
+        if (form === 4) { ans = a * b + q; toks = [{ n: a }, { op: '×' }, { n: b }, { op: '＋' }, { n: cd }, { op: '÷' }, { n: d }]; }
+        else { if (a * b <= q) continue; ans = a * b - q; toks = [{ n: a }, { op: '×' }, { n: b }, { op: '−' }, { n: cd }, { op: '÷' }, { n: d }]; }
+        help = `先算 ${a} × ${b} ＝ ${a * b}，${cd} ÷ ${d} ＝ ${q}`;
+      } else {
+        if (c < 3) continue;
+        const d = r(2, c - 1); const inner = b * (c - d);
+        const help = `先算 ${c} − ${d} ＝ ${c - d}，再算 ${b} × ${c - d} ＝ ${inner}`;
+        if (rng() < 0.5) { const x = r(inner + 1, inner + 30); ans = x - inner; toks = [{ n: x }, { op: '−' }, { op: '[' }, { n: b }, { op: '×' }, { op: '(' }, { n: c }, { op: '−' }, { n: d }, { op: ')' }, { op: ']' }]; }
+        else { const k = r(1, 9); ans = k; toks = [{ n: inner * k }, { op: '÷' }, { op: '[' }, { n: b }, { op: '×' }, { op: '(' }, { n: c }, { op: '−' }, { n: d }, { op: ')' }, { op: ']' }]; }
+      }
       if (ans <= 0 || ans > 999) continue;
-      return buildH([...toks, { op: '＝' }, { ans }], { title: '运算顺序', text: toks.map((t) => t.n ?? t.op).join(''), answer: String(ans), help });
+      const grid = buildH([...toks, { op: '＝' }, { ans }], { title: '运算顺序', text: toks.map((t) => t.n ?? t.op).join(''), answer: String(ans), help });
+      if (grid.cols > 16) continue;
+      return grid;
     }
     throw new Error('order');
   },
+  // Rounding (近似数): the target place runs from tens up to the hundred
+  // millions (18000≈2万, 233482≈20万, 95793065≈1亿). nm names the target
+  // place, help names the place below it (万位题显示「千位四舍五入」) — two
+  // different arrays on purpose. The 亿 form draws from 1.05亿–1.99亿 so the
+  // rounded result keeps 9 digits (结果位数不增加).
   round(rng) {
     const r = R(rng);
-    const n = r(1001, 99999); const len = String(n).length;
-    const pl = r(1, Math.min(3, len - 2));
-    const unit = 10 ** pl; const ans = Math.round(n / unit) * unit;
-    if (String(ans).length > len) return GEN.round(rng);
-    const nm = ['十', '百', '千'][pl - 1];
-    return buildH([{ n }, { w: '的' }, { br: true }, { w: `精确到${nm}位` }, { op: '→' }, { ans }], { title: '近似数', text: `${n}精确到${nm}位的近似数`, answer: String(ans), help: `${['个', '十', '百'][pl - 1]}位四舍五入` });
+    const nm = { 1: '十', 2: '百', 3: '千', 4: '万', 5: '十万', 8: '亿' };
+    const below = { 1: '个', 2: '十', 3: '百', 4: '千', 5: '万', 8: '千万' };
+    for (let g = 0; g < 400; g++) {
+      const pl = pickOf(rng, [1, 2, 3, 4, 5, 8]);
+      const lo = pl === 8 ? 105000000 : pl === 5 ? 100001 : pl === 4 ? 10001 : pl === 3 ? 10001 : 1001;
+      const hi = pl === 8 ? 199000000 : pl === 5 ? 999999 : pl === 4 ? 999999 : 99999;
+      const n = r(lo, hi); const len = String(n).length;
+      const unit = 10 ** pl; const ans = Math.round(n / unit) * unit;
+      if (String(ans).length > len) continue;
+      return buildH([{ n }, { w: '的' }, { br: true }, { w: `精确到${nm[pl]}位` }, { op: '→' }, { ans }], { title: '近似数', text: `${n}精确到${nm[pl]}位的近似数`, answer: String(ans), help: `${below[pl]}位四舍五入` });
+    }
+    throw new Error('round');
+  },
+  // 加法凑整: one pair of addends makes a whole hundred, shown apart
+  // (57＋288＋43＝388, 加法结合律 of the textbook).
+  convAdd(rng) {
+    const r = R(rng);
+    for (let g = 0; g < 400; g++) {
+      const S = r(1, 9) * 100;
+      const p = r(11, S - 11);
+      const t = r(11, 999 - S);
+      if (p % 10 === 0 || t % 10 === 0) continue;
+      const first = rng() < 0.5 ? p : S - p;
+      const grid = buildH([{ n: first }, { op: '＋' }, { n: t }, { op: '＋' }, { n: S - first }, { op: '＝' }, { ans: S + t }], { title: '凑整', text: `${first}＋${t}＋${S - first}`, answer: String(S + t), help: `${first} ＋ ${S - first} ＝ ${S}` });
+      if (grid.cols > 16) continue;
+      return grid;
+    }
+    throw new Error('convAdd');
+  },
+  // 乘法凑整: pairing products (125×9×8), the distributive law in its add
+  // (34×72＋34×28) and subtract (206×14−6×14) forms, and the ×99 trick
+  // (13×99 ＝ 13×100−13). All results are positive.
+  convMul(rng) {
+    const r = R(rng);
+    const pairs = [[25, 4], [4, 25], [125, 8], [8, 125], [50, 2], [2, 50], [50, 4], [4, 50], [50, 6], [6, 50], [25, 8], [8, 25], [125, 4], [4, 125]];
+    for (let g = 0; g < 400; g++) {
+      const form = r(0, 3);
+      let toks; let ans; let help;
+      if (form === 0) {
+        const [p1, p2] = pickOf(rng, pairs); const a = r(3, 99);
+        toks = rng() < 0.5 ? [{ n: p1 }, { op: '×' }, { n: a }, { op: '×' }, { n: p2 }] : [{ n: a }, { op: '×' }, { n: p1 }, { op: '×' }, { n: p2 }];
+        ans = a * p1 * p2; help = `${p1} × ${p2} ＝ ${p1 * p2}`;
+      } else if (form === 1) {
+        const S = r(1, 9) * 100; const a = S === 100 ? r(2, 99) : r(2, 9); const b = r(11, S - 11);
+        if (b % 10 === 0) continue;
+        toks = [{ n: a }, { op: '×' }, { n: b }, { op: '＋' }, { n: a }, { op: '×' }, { n: S - b }];
+        ans = a * S; help = `${b} ＋ ${S - b} ＝ ${S}`;
+      } else if (form === 2) {
+        const diff = pickOf(rng, [10, 20, 30, 40, 50, 60, 70, 80, 90, 100, 200, 300, 400, 500, 600, 700, 800, 900]);
+        const y = r(2, 9); const b = r(11, 99);
+        toks = [{ n: y + diff }, { op: '×' }, { n: b }, { op: '−' }, { n: y }, { op: '×' }, { n: b }];
+        ans = diff * b; help = `${y + diff} − ${y} ＝ ${diff}`;
+      } else {
+        const a = r(11, 99);
+        toks = [{ n: a }, { op: '×' }, { n: 99 }];
+        ans = a * 99; help = `99 ＝ 100 − 1`;
+      }
+      const grid = buildH([...toks, { op: '＝' }, { ans }], { title: '凑整', text: toks.map((t) => t.n ?? t.op).join(''), answer: String(ans), help });
+      if (grid.cols > 16) continue;
+      return grid;
+    }
+    throw new Error('convMul');
+  },
+  // Solving equations (解方程 of the textbook): the equation with x＝… on a
+  // second row, as in `letter`. One step: x±a＝b, a＋x＝b, x×a＝b, x÷a＝b,
+  // plus a one-decimal sub-form (x−12.3＝3.8). Two steps: a×x±b＝c, a＋b×x＝c.
+  // Answers are positive; equations with a decimal divisor are out of scope
+  // (decimal division sits in grade 5).
+  eq(rng, { twoStep }) {
+    const r = R(rng);
+    for (let g = 0; g < 400; g++) {
+      let toks; let x; let help;
+      if (!twoStep) {
+        const form = r(0, 5);
+        if (form === 0) {
+          const a = r(2, 50); const u = r(2, 50);
+          x = u; toks = [{ n: 'x' }, { op: '＋' }, { n: a }, { op: '＝' }, { n: u + a }]; help = `两边同时减 ${a}`;
+        } else if (form === 1) {
+          const a = r(2, 50); const b = r(2, 50);
+          x = a + b; toks = [{ n: 'x' }, { op: '−' }, { n: a }, { op: '＝' }, { n: b }]; help = `两边同时加 ${a}`;
+        } else if (form === 2) {
+          const a = r(2, 50); const u = r(2, 50);
+          x = u; toks = [{ n: a }, { op: '＋' }, { n: 'x' }, { op: '＝' }, { n: a + u }]; help = `两边同时减 ${a}`;
+        } else if (form === 3) {
+          const a = r(2, 9); x = r(2, 99);
+          toks = [{ n: 'x' }, { op: '×' }, { n: a }, { op: '＝' }, { n: x * a }]; help = `两边同时除以 ${a}`;
+        } else if (form === 4) {
+          const a = r(2, 52); const q = r(2, 9);
+          x = a * q; toks = [{ n: 'x' }, { op: '÷' }, { n: a }, { op: '＝' }, { n: q }]; help = `两边同时乘 ${a}`;
+        } else {
+          const sub = rng() < 0.5;
+          const a = r(21, 199); const xv = r(sub ? a + 11 : 11, 999);
+          if (a % 10 === 0 || xv % 10 === 0 || (sub ? xv - a : xv + a) % 10 === 0) continue;
+          toks = [{ n: 'x' }, { op: sub ? '−' : '＋' }, { n: decStr(a, 1) }, { op: '＝' }, { n: decStr(sub ? xv - a : xv + a, 1) }];
+          x = decStr(xv, 1);
+          help = `两边同时${sub ? '加' : '减'} ${decStr(a, 1)}`;
+        }
+      } else {
+        const form = r(0, 2);
+        const a = r(2, 9); x = r(2, 99); const p = a * x;
+        if (form === 0) {
+          const b = r(2, Math.min(200, 999 - p));
+          toks = [{ n: a }, { op: '×' }, { n: 'x' }, { op: '＋' }, { n: b }, { op: '＝' }, { n: p + b }]; help = `两边先同时减 ${b}，再同时除以 ${a}`;
+        } else if (form === 1) {
+          const b = r(2, p - 2);
+          toks = [{ n: a }, { op: '×' }, { n: 'x' }, { op: '−' }, { n: b }, { op: '＝' }, { n: p - b }]; help = `两边先同时加 ${b}，再同时除以 ${a}`;
+        } else {
+          const b = r(2, Math.min(300, 999 - p));
+          toks = [{ n: b }, { op: '＋' }, { n: a }, { op: '×' }, { n: 'x' }, { op: '＝' }, { n: p + b }]; help = `两边先同时减 ${b}，再同时除以 ${a}`;
+        }
+      }
+      const grid = buildH([...toks, { br: true }, { n: 'x' }, { op: '＝' }, { ans: x }], { title: '解方程', text: toks.map((t) => t.n ?? t.op).join(''), answer: String(x), help });
+      if (grid.cols > 16) continue;
+      return grid;
+    }
+    throw new Error('eq');
+  },
+  // 小数加减混合 (歌手大赛): five shapes over 1-2 place decimals and whole
+  // numbers, positive results without trailing zeros (9.43−(8.65＋0.40),
+  // 5−(4.19−2.83)).
+  dec3(rng) {
+    const r = R(rng);
+    const hdec = (v) => { let s = decStr(v, 2); while (s.endsWith('0') && s.includes('.')) s = s.slice(0, -1); return s.endsWith('.') ? s.slice(0, -1) : s; };
+    const term = () => {
+      const k = rng();
+      if (k < 0.2) { const n = r(2, 15); return { s: String(n), v: n * 100 }; }
+      if (k < 0.55) { const n = r(11, 99); return { s: decStr(n, 1), v: n * 10, z: n % 10 === 0 }; }
+      const n = r(11, 999); return { s: decStr(n, 2), v: n, z: n % 10 === 0 };
+    };
+    for (let g = 0; g < 600; g++) {
+      const A = term(); const B = term(); const C = term();
+      if (A.z || B.z || C.z) continue;
+      const form = r(0, 4);
+      let toks; let res; let help;
+      if (form === 0) { res = A.v + B.v - C.v; toks = [{ n: A.s }, { op: '＋' }, { n: B.s }, { op: '−' }, { n: C.s }]; help = `先算 ${A.s} ＋ ${B.s} ＝ ${hdec(A.v + B.v)}`; }
+      else if (form === 1) { if (A.v <= B.v) continue; res = A.v - B.v + C.v; toks = [{ n: A.s }, { op: '−' }, { n: B.s }, { op: '＋' }, { n: C.s }]; help = `先算 ${A.s} − ${B.s} ＝ ${hdec(A.v - B.v)}`; }
+      else if (form === 2) { res = A.v - B.v - C.v; toks = [{ n: A.s }, { op: '−' }, { op: '(' }, { n: B.s }, { op: '＋' }, { n: C.s }, { op: ')' }]; help = `先算括号里的 ${B.s} ＋ ${C.s} ＝ ${hdec(B.v + C.v)}`; }
+      else if (form === 3) { if (B.v <= C.v) continue; res = A.v - B.v + C.v; toks = [{ n: A.s }, { op: '−' }, { op: '(' }, { n: B.s }, { op: '−' }, { n: C.s }, { op: ')' }]; help = `先算括号里的 ${B.s} − ${C.s} ＝ ${hdec(B.v - C.v)}`; }
+      else { res = A.v + B.v + C.v; toks = [{ n: A.s }, { op: '＋' }, { n: B.s }, { op: '＋' }, { n: C.s }]; help = `先算 ${A.s} ＋ ${B.s} ＝ ${hdec(A.v + B.v)}`; }
+      if (res <= 0 || res % 10 === 0) continue;
+      const grid = buildH([...toks, { op: '＝' }, { ans: decStr(res, 2) }], { title: '小数混合', text: toks.map((t) => t.n ?? t.op).join(''), answer: decStr(res, 2), help });
+      if (grid.cols > 16) continue;
+      return grid;
+    }
+    throw new Error('dec3');
+  },
+  // 小数点搬家: ×/÷ 10, 100, 1000 (0.09×1000＝90, 43.21÷1000＝0.04321).
+  // x has 1-2 decimals and no trailing zero, so every result is exact and
+  // free of 4.60-style ambiguity.
+  decShift(rng) {
+    const r = R(rng);
+    for (let g = 0; g < 400; g++) {
+      const d = r(1, 2); const n = r(1, 999);
+      if (n % 10 === 0) continue;
+      const right = rng() < 0.5; const k = pickOf(rng, [1, 2, 3]);
+      let ans;
+      if (right) ans = k >= d ? String(n * 10 ** (k - d)) : decStr(n, d - k);
+      else { const p = d + k; ans = n < 10 ** p ? `0.${String(n).padStart(p, '0')}` : decStr(n, p); }
+      const x = decStr(n, d);
+      const grid = buildH([{ n: x }, { op: right ? '×' : '÷' }, { n: 10 ** k }, { op: '＝' }, { ans }], { title: '小数点移动', text: `${x}${right ? '×' : '÷'}${10 ** k}`, answer: ans, help: `小数点向${right ? '右' : '左'}移动 ${k} 位` });
+      if (grid.cols > 16) continue;
+      return grid;
+    }
+    throw new Error('decShift');
+  },
+  // 大数改写 (国土面积): whole 万 / 亿 numbers rewritten with the unit
+  // (1660000＝166万). The unit is shown; only the number is typed.
+  rewrite(rng) {
+    const r = R(rng);
+    const yi = rng() < 0.5;
+    const k = yi ? r(2, 999) : r(10, 9999);
+    const n = k * (yi ? 10 ** 8 : 10 ** 4);
+    const grid = buildH([{ n }, { op: '＝' }, { ans: k }, { w: yi ? '亿' : '万' }], { title: '大数改写', text: `${n}＝${k}${yi ? '亿' : '万'}`, answer: String(k), help: `末尾去掉 ${yi ? 8 : 4} 个 0` });
+    if (grid.cols > 16) return GEN.rewrite(rng);
+    return grid;
   },
   percent(rng) {
     const r = R(rng);

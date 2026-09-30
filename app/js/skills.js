@@ -66,19 +66,31 @@ export const SKILLS = [
   { id: 'g4-vdiv-2d1', name: '两位数除以一位数竖式', grade: 4, lane: 1, req: ['g3-div-rem', 'g3-div-tens'], gen: ['vdiv', { dd: 2, ds: 1 }] },
   { id: 'g4-vdiv-3d1', name: '三位数除以一位数', grade: 4, lane: 1, req: ['g4-vdiv-2d1'], gen: ['vdiv', { dd: 3, ds: 1 }] },
   { id: 'g4-vdiv-2d2', name: '两位数除以两位数', grade: 4, lane: 1, req: ['g4-vdiv-2d1', 'g3-vmul-2x1'], gen: ['vdiv', { dd: 2, ds: 2 }] },
-  { id: 'g4-vdiv-3d2', name: '三位数除以两位数', grade: 4, lane: 1, req: ['g4-vdiv-2d2', 'g4-vdiv-3d1'], gen: ['vdiv', { dd: 3, ds: 2 }] },
+  { id: 'g4-vdiv-3d2', name: '三位数除以两位数', grade: 4, lane: 1, req: ['g4-vdiv-2d2', 'g4-vdiv-3d1'], gen: ['vdiv', { dd: 3, ds: 2, dsMax: 90 }] },
+  { id: 'g4-conv-add', name: '加法凑整', grade: 4, lane: 0, req: ['g3-add3'], gen: ['convAdd', {}] },
+  { id: 'g4-conv-mul', name: '乘法凑整', grade: 4, lane: 1, req: ['g3-vmul-2x2'], gen: ['convMul', {}] },
   { id: 'g4-order', name: '运算顺序', grade: 4, lane: 3, req: ['g2-kuku-mix', 'g2-vsub2-b'], gen: ['order', {}] },
+  { id: 'g4-eq-1', name: '解方程（一步）', grade: 4, lane: 3, req: ['g4-order'], gen: ['eq', {}] },
+  { id: 'g4-eq-2', name: '解方程（两步）', grade: 4, lane: 3, req: ['g4-eq-1'], gen: ['eq', { twoStep: true }] },
   { id: 'g4-round', name: '近似数（四舍五入）', grade: 4, lane: 3, req: ['g3-vadd4'], gen: ['round', {}] },
-  { id: 'g4-dec-add2', name: '两位小数加减', grade: 4, lane: 2, req: ['g3-dec-sub1'], gen: ['vdec', { op: 'addsub', places: 2 }] },
-  { id: 'g4-dec-mul', name: '小数乘整数', grade: 4, lane: 2, req: ['g4-dec-add2', 'g3-vmul-2x1'], gen: ['vmul', { da: 2, db: 1, pa: 1 }] },
-  { id: 'g4-dec-div', name: '小数除以整数', grade: 4, lane: 2, req: ['g4-dec-mul', 'g4-vdiv-2d1'], gen: ['decDivInt', {}] },
-  { id: 'g4-frac-mixed', name: '带分数加减', grade: 4, lane: 2, req: ['g3-frac-same'], gen: ['frac', { op: 'addsub', same: true, mixed: true }] },
+  { id: 'g4-rewrite', name: '大数改写', grade: 4, lane: 3, req: ['g3-vadd4'], gen: ['rewrite', {}] },
+  { id: 'g4-dec-add2', name: '两位小数加减', grade: 4, lane: 2, req: ['g3-dec-sub1'], gen: ['vdec', { op: 'addsub', places: 2, intMinuend: true }] },
+  { id: 'g4-dec-mix', name: '小数加减混合', grade: 4, lane: 2, req: ['g4-dec-add2'], gen: ['dec3', {}] },
+  { id: 'g4-dec-mul', name: '小数乘整数', grade: 4, lane: 2, req: ['g4-dec-add2', 'g3-vmul-2x1'], gen: ['vmul', { da: [1, 2], db: 1, pa: 1, subOne: true }] },
+  { id: 'g4-dec-shift', name: '小数点移动', grade: 4, lane: 2, req: ['g3-dec-add1'], gen: ['decShift', {}] },
   // Moved here from grade 3 by the 2026-09-30 alignment decision (no such
   // lesson in either grade-3 textbook); the g3- id is kept for saved-progress
   // compatibility (docs/curriculum.md, grade 4 note).
   { id: 'g3-vmul-3x2', name: '三位数乘两位数', grade: 4, lane: 1, req: ['g3-vmul-2x2', 'g3-vmul-3x1'], gen: ['vmul', { da: 3, db: 2 }] },
+  { id: 'g4-vmul-3x2-zero', name: '末尾有0的三位数乘两位数', grade: 4, lane: 1, req: ['g3-vmul-3x2'], gen: ['vmul', { da: 3, db: 2, aEnd: 'zero', bEnd: true }] },
 
   // ---------------------------------------------------------------- grade 5
+  // Moved here from grade 4 by the 2026-09-30 alignment ruling: neither
+  // grade-4 textbook teaches them. Ids, names, generators and prerequisites
+  // are unchanged for saved-progress compatibility (docs/curriculum.md,
+  // grade 5 note); their exact textbook units are up to the grade-5 round.
+  { id: 'g4-dec-div', name: '小数除以整数', grade: 5, lane: 2, req: ['g4-dec-mul', 'g4-vdiv-2d1'], gen: ['decDivInt', {}] },
+  { id: 'g4-frac-mixed', name: '带分数加减', grade: 5, lane: 2, req: ['g3-frac-same'], gen: ['frac', { op: 'addsub', same: true, mixed: true }] },
   { id: 'g5-dec-mul', name: '小数乘小数', grade: 5, lane: 2, req: ['g4-dec-mul'], gen: ['vmul', { da: 2, db: 2, pa: 1, pb: 1 }] },
   { id: 'g5-dec-div', name: '小数除以小数', grade: 5, lane: 2, req: ['g4-dec-div', 'g5-dec-mul'], gen: ['decDivDec', {}] },
   { id: 'g5-gcd', name: '最大公约数', grade: 5, lane: 3, req: ['g3-div-basic'], gen: ['gcdlcm', { kind: 'gcd' }] },
