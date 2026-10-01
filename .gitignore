@@ -3,3 +3,9 @@ node_modules/
 *.log
 .env
 .env.*
+
+# 教材扫描件（582MB，版权材料，不入库）
+北师大版/
+
+# ZCode 本地工作产物
+.zcode/
