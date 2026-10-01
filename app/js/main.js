@@ -1289,7 +1289,7 @@ function planCapsule() {
   S.capsuleAt = -1;
   if (!recording() || !['level', 'grade', 'practice'].includes(S.plan.mode) || S.plan.placement || S.N < 4) return;
   if ((store.load().capsule || {}).lastDay === store.dayKey()) return;
-  const c = pickCapsule(progress());
+  const c = pickCapsule(progress(), Date.now(), S.plan.mode === 'grade' ? S.plan.grade : 0);
   if (!c) return;
   const k = Math.max(1, Math.min(S.N - 2, Math.floor(S.N / 2)));
   const p = structuredClone(c.entry.p);

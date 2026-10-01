@@ -24,12 +24,15 @@ test('mastery needs 5 of the last 6 first-try clears and unlocks children', () =
   assert.ok(!isMastered(prog, 'g1-compose10')); // only 4 of 6
 });
 
-test('grade plans stay inside the grade for basic problems', () => {
+test('grade plans stay inside the grade for basic problems and the bonus round', () => {
   const rng = makeRng(4);
   for (let g = 1; g <= 6; g++) {
     const plan = gradePlan(g, 10, rng);
     for (const id of plan.basic) assert.equal(SKILL[id].grade, g);
     for (let k = 0; k < 12; k++) assert.ok(SKILL[plan.extra(k)]);
+    // The bonus round cycles the grade's own hard half; it never reaches into
+    // the next grade, so grade 1 never shows kuku or a column sum.
+    for (let k = 0; k < 30; k++) assert.equal(SKILL[plan.extra(k)].grade, g);
   }
 });
 
@@ -201,6 +204,36 @@ test('time capsule: a first problem returns after 30 days, once, for mastered sk
   assert.equal(capsuleCompare({ t: 9000, m: 2 }, 3000, 2).what, 'time');
   assert.deepEqual(capsuleCompare({ t: 3000, m: 2 }, 4000, 0), { what: 'miss', from: 2, to: 0 });
   assert.equal(capsuleCompare({ t: 3000, m: 0 }, 4000, 0).what, 'none');
+});
+
+test('time capsule in grade mode never reaches above the chosen grade', async () => {
+  const { pickCapsule, useCapsule, CAPSULE } = await import('../app/js/session.js');
+  const prog = emptyProgress();
+  const rng = makeRng(9);
+  const day0 = Date.UTC(2026, 7, 1);
+  const later = day0 + CAPSULE.days * 864e5 + 5000;
+  // A grade-1 skill and a grade-3 fraction skill, both mastered on the same day.
+  for (const id of ['g1-add-nc', 'g2-frac-of']) {
+    for (let i = 0; i < 6; i++) {
+      const p = problemFor(prog, id, rng);
+      recordResult(prog, id, true, null, { at: day0 + i * 1000, day: '2026-08-01', ms: 9000, cells: 1, misses: 0, problem: p });
+    }
+  }
+  assert.ok(isMastered(prog, 'g1-add-nc') && isMastered(prog, 'g2-frac-of'));
+  // Grade 1: only the grade-1 entries come back, and once they are used, none.
+  const seen = [];
+  for (let i = 0; i < 5; i++) {
+    const c = pickCapsule(prog, later, 1);
+    if (!c) break;
+    assert.ok(SKILL[c.skill].grade <= 1, c.skill);
+    seen.push(c.skill);
+    useCapsule(prog, c.skill, c.index);
+  }
+  assert.ok(seen.length > 0);
+  assert.deepEqual([...new Set(seen)], ['g1-add-nc']);
+  assert.equal(pickCapsule(prog, later, 1), null);
+  // Grade 3 is in range for both, so the fraction entry is reachable again.
+  assert.ok(pickCapsule(prog, later, 3));
 });
 
 test('rust: one level, at most three oldest, polished by one first-try answer, review slots first (id040)', async () => {

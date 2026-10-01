@@ -231,7 +231,6 @@ export function masteryRatio(prog, id) {
 
 export function gradePlan(grade, N, rng) {
   const list = skillsOfGrade(grade).sort((a, b) => DEPTH[a.id] - DEPTH[b.id]).map((s) => s.id);
-  const next = skillsOfGrade(Math.min(6, grade + 1)).sort((a, b) => DEPTH[a.id] - DEPTH[b.id]).map((s) => s.id);
   const basic = Array.from({ length: N }, (_, i) => {
     // Walk from easy to hard across the grade with a little jitter.
     const t = N <= 1 ? 1 : i / (N - 1);
@@ -241,7 +240,9 @@ export function gradePlan(grade, N, rng) {
   const hard = list.slice(Math.floor(list.length * 0.55));
   return {
     mode: 'grade', grade, basic,
-    extra: (k) => (k < 6 || grade === 6 ? hard[k % hard.length] : next[(k - 6) % Math.max(1, Math.min(next.length, 4))]),
+    // The bonus round stays in the chosen grade: past a point it just cycles
+    // the harder half again, so a grade never shows content it has not learnt.
+    extra: (k) => hard[k % hard.length],
   };
 }
 
@@ -306,11 +307,14 @@ export { signature };
 // ---------------------------------------------------------------- time capsule (id039)
 // A problem from the child's first days with a skill comes back once it is
 // mastered and a month has passed, to compare "that day" with today.
+// maxGrade caps the grade: grade mode passes its own grade so a grade-1 run
+// never replays a fraction problem the child has not reached yet.
 export const CAPSULE = { days: 30 };
-export function pickCapsule(prog, now = Date.now()) {
+export function pickCapsule(prog, now = Date.now(), maxGrade = 0) {
   let best = null;
   for (const [id, r] of Object.entries(prog.skills)) {
     if (!r.mastered || !r.first || !SKILL[id]) continue;
+    if (maxGrade && SKILL[id].grade > maxGrade) continue;
     r.first.forEach((e, i) => {
       if (e.used || !e.p || !e.at || now - e.at < CAPSULE.days * 864e5) return;
       if (!best || e.at < best.entry.at) best = { skill: id, index: i, entry: e };
