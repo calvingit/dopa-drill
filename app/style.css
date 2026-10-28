@@ -239,6 +239,11 @@ body.lv5 .spot { opacity: .7; }
 .cell.input.active { background: var(--blue-soft); outline: 3px dashed var(--blue); outline-offset: -3px; animation: active-cell 1s ease-in-out infinite; }
 .cell.input.active::before { content: "?"; color: rgba(59, 107, 255, .35); }
 .cell.input.active.has::before { content: none; }
+/* A blank that names what goes in it (□ for an operand, ○ for a comparison). */
+.cell.input[data-ph]::before { content: attr(data-ph); color: rgba(59, 107, 255, .45); }
+/* find-error: the cell starts out holding the wrong digit to be corrected. */
+.cell.input.pre { color: #7a4bff; background: #efe8ff; outline: 3px dashed #a77bff; outline-offset: -3px; }
+.cell.input.pre::before { content: none; }
 .cell.input.ok { color: var(--ink); }
 .cell.input.bad { color: #7a4bff; background: #efe8ff; outline: 3px dashed #a77bff; outline-offset: -3px; animation: none; }
 .cell.hint-glow { border-radius: 8px; background: #fff3b8; box-shadow: 0 0 0 3px var(--yellow); animation: hint-glow .9s ease-in-out infinite; }
@@ -294,6 +299,9 @@ body.lv4 .pad button[data-key="9"], body.lv4 .pad button[data-key="5"], body.lv4
 body.lv4 .pad button[data-key="6"], body.lv4 .pad button[data-key="2"], body.lv4 .pad button[data-key="0"] { background: #dcfaef; }
 body.lv8 .pad button { box-shadow: 0 5px 0 var(--ink), 0 0 calc(var(--kick) * 18px) rgba(255, 210, 63, .9); }
 .pad button:disabled { opacity: .5; }
+/* The pads are built per problem; hidden must beat .pad's display:grid. */
+.pad[hidden] { display: none; }
+.pad-sym .del { grid-column: 1 / -1; }
 
 /* ------------------------------------------------------------ results */
 #screen-result, #screen-final { align-items: safe center; justify-content: center; padding: 20px 16px; overflow-y: auto; }

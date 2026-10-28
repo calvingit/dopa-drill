@@ -2,7 +2,7 @@
 // escalating visuals and sound.
 import { startClock, onFrame, wait, tween, clamp, lerp, rand, pick, chance, centerOf, params,
   easeOutBack, easeOutCubic, easeInCubic, easeInOutCubic, easeOutQuint } from './core.js';
-import { makeRng, generate, makeProblem, signature, BASIC_SETS, EXTRA_TIERS } from './problems.js';
+import { makeRng, generate, makeProblem, signature, styleProblem, BASIC_SETS, EXTRA_TIERS } from './problems.js';
 import { AudioEngine } from './audio.js';
 import { Dopakichi, COSTUMES, dopakichiSVG } from './dopakichi.js';
 import { FX } from './fx.js';
@@ -35,7 +35,62 @@ const body = document.body;
 const sheet = $('#sheet');
 const card = $('#card');
 const stage = $('#stage');
-const padButtons = Object.fromEntries($$('#pad button').map((b) => [b.dataset.key, b]));
+const pad = $('#pad');
+const padSym = $('#pad-sym');
+
+// Symbols a problem may ask for, in pad order. The pad itself is rebuilt per
+// problem (setPad), so a comparison question shows < = > and a judgement one
+// shows √ ×; digit questions keep the number pad.
+const SYMBOL_KEYS = new Set(['<', '=', '>', '√', '×']);
+const DIGIT_PAD = [
+  '7', '8', '9', '4', '5', '6', '1', '2', '3',
+].map((k) => ({ key: k })).concat([
+  { key: 'Backspace', label: '⌫', cls: 'del', aria: '删一位' },
+  { key: '0', cls: 'zero' },
+]);
+let padButtons = {};
+
+function buildPad(el, specs) {
+  el.innerHTML = '';
+  for (const s of specs) {
+    const b = document.createElement('button');
+    b.type = 'button';
+    b.dataset.key = s.key;
+    b.textContent = s.label ?? s.key;
+    if (s.cls) b.className = s.cls;
+    if (s.aria) b.setAttribute('aria-label', s.aria);
+    el.appendChild(b);
+    padButtons[s.key] = b;
+  }
+}
+
+// Pick the pad that matches the characters the current problem asks for.
+function setPad(p) {
+  const wanted = [...new Set(p.steps.map((s) => s.digit))];
+  // A problem may name its keys explicitly; deriving them from the answer
+  // would show only the right one.
+  const symbols = p.pad
+    ? p.pad.filter((k) => SYMBOL_KEYS.has(k))
+    : [...SYMBOL_KEYS].filter((k) => wanted.includes(k));
+  const needsDigits = wanted.some((d) => /^[0-9]$/.test(d));
+  padButtons = {};
+  if (symbols.length) {
+    buildPad(padSym, [
+      ...symbols.map((k) => ({ key: k, label: k, aria: `${k} 键` })),
+      { key: 'Backspace', label: '⌫', cls: 'del', aria: '删一位' },
+    ]);
+    padSym.hidden = false;
+  } else {
+    padSym.innerHTML = '';
+    padSym.hidden = true;
+  }
+  if (!symbols.length || needsDigits) {
+    buildPad(pad, DIGIT_PAD);
+    pad.hidden = false;
+  } else {
+    pad.hidden = true;
+  }
+}
 
 const S = {
   screen: 'title', N: 10, rng: null, qi: 0, problems: [], problem: null, step: 0,
@@ -229,7 +284,8 @@ function sessionProblem(skill) {
   const prog = progress();
   const r = prog.skills[skill];
   const recent = new Set([...(r ? r.recent : []), ...S.sessionSigs]);
-  let p = makeProblem(skill, S.rng, recent);
+  // A column calculation sometimes comes back as fill-the-blank or find-the-error.
+  const p = styleProblem(makeProblem(skill, S.rng, recent), S.rng);
   S.sessionSigs.add(signature(p));
   return p;
 }
@@ -273,13 +329,29 @@ function renderSheet(p) {
     d.className = `cell ${c.kind}${c.small ? ' small' : ''}${c.cls ? ` ${c.cls}` : ''}`;
     d.style.gridRow = c.rs ? `${c.r + 1} / span ${c.rs}` : `${c.r + 1}`;
     d.style.gridColumn = c.cs ? `${c.c + 1} / span ${c.cs}` : `${c.c + 1}`;
-    if (c.kind === 'input') { d.textContent = ''; d.setAttribute('aria-label', '输入格'); }
-    else if (c.kind === 'auto' || c.kind === 'carry') { d.textContent = c.text; d.classList.add('hidden'); }
+    if (c.kind === 'input') {
+      // A find-error cell shows the wrong digit it must be corrected from.
+      d.textContent = c.pre || '';
+      if (c.pre) d.classList.add('pre', 'has');
+      if (c.ph) d.dataset.ph = c.ph;
+      d.setAttribute('aria-label', c.pre ? `写着 ${c.pre}，改成对的数字` : '输入格');
+    }
+    else if (c.kind === 'auto' || c.kind === 'carry') {
+      d.textContent = c.text;
+      if (!p.showAll) d.classList.add('hidden');
+    }
     else d.textContent = c.text;
     if (c.text === '.' && c.kind === 'auto') d.classList.add('dot');
     sheet.appendChild(d);
     S.cells[c.id] = d;
     d.dataset.id = c.id;
+  }
+  // Styled questions show a finished working, borrow marks included.
+  for (const m of p.preMarks || []) {
+    const mk = S.cells[`m${m.c}`];
+    if (mk) mk.textContent = m.text;
+    const top = S.cells[`a${m.c}`];
+    if (top) top.classList.add('struck');
   }
   fitSheet(p);
 }
@@ -381,6 +453,7 @@ async function setupProblem() {
   $('#qtitle').textContent = p.title;
   $('#qno').textContent = extra ? `EX ${S.extra.solved + 1}` : `第${S.qi + 1}题`;
   renderSheet(p);
+  setPad(p);
   $('#step-label').innerHTML = '&nbsp;';
   const last = !extra && S.qi === S.N - 1;
   const run = S.run;
@@ -441,7 +514,7 @@ function press(key, btn = padButtons[key]) {
     const last = S.step >= p.steps.length;
     if (last) { S.ready = false; S.qMs = now() - S.qStart; }
     S.shownWrong = null;
-    cell.classList.remove('bad', 'active', 'has');
+    cell.classList.remove('bad', 'active', 'has', 'pre');
     cell.classList.add('ok', 'pending');
     cell.textContent = key;
     bumpDopa(cell);
@@ -471,8 +544,11 @@ function erase() {
   if (!S.shownWrong || !S.problem) return;
   const st = S.problem.steps[S.step];
   const cell = S.cells[st.cell];
-  cell.textContent = '';
+  // A find-error cell goes back to the wrong digit it started from.
+  const def = S.problem.cells.find((c) => c.id === st.cell);
+  cell.textContent = def && def.pre ? def.pre : '';
   cell.classList.remove('bad', 'has', 'pending');
+  if (def && def.pre) cell.classList.add('pre', 'has');
   S.shownWrong = null;
   audio.erase();
   const c = centerOf(cell);
@@ -1255,7 +1331,10 @@ function demoTick(t) {
     const room = S.mode === 'extra' || S.wrongInQ || (DEMO.slipped || 0) < Math.floor(S.N * 0.2);
     const slip = room && !S.shownWrong && Math.random() < (S.mode === 'extra' ? 0.05 : 0.1);
     if (slip && S.mode !== 'extra' && !S.wrongInQ) DEMO.slipped = (DEMO.slipped || 0) + 1;
-    const key = slip ? String((Number(st.digit) + 1 + Math.floor(Math.random() * 8)) % 10) : st.digit;
+    const wrongKey = /^[0-9]$/.test(st.digit)
+      ? String((Number(st.digit) + 1 + Math.floor(Math.random() * 8)) % 10)
+      : Object.keys(padButtons).find((k) => SYMBOL_KEYS.has(k) && k !== st.digit) || st.digit;
+    const key = slip ? wrongKey : st.digit;
     press(key, padButtons[key]);
     DEMO.next = t + (slip ? 650 : rand(230, 480) * (S.mode === 'extra' ? 0.8 : 1));
   }
@@ -2525,9 +2604,18 @@ $('#go-tree').addEventListener('click', () => openTree(S.newUnlocks, Object.keys
 $('#f-tree').addEventListener('click', () => openTree(S.newUnlocks, Object.keys(S.newStars)));
 $('#tree-back').addEventListener('click', () => { audio.play('blip', audio.now(), { m: 72, v: 0.08 }); toTitle(); });
 
-for (const [key, b] of Object.entries(padButtons)) {
-  b.addEventListener('pointerdown', (e) => { e.preventDefault(); audio.unlock(); press(key, b); });
-  b.addEventListener('click', (e) => { if (e.detail === 0) press(key, b); });
+// The pads are rebuilt per problem, so listen on the containers instead of
+// the buttons.
+for (const el of [pad, padSym]) {
+  el.addEventListener('pointerdown', (e) => {
+    const b = e.target.closest('button');
+    if (!b || !el.contains(b)) return;
+    e.preventDefault(); audio.unlock(); press(b.dataset.key, b);
+  });
+  el.addEventListener('click', (e) => {
+    const b = e.target.closest('button');
+    if (b && el.contains(b) && e.detail === 0) press(b.dataset.key, b);
+  });
 }
 addEventListener('keydown', (e) => {
   if (guide.keydown(e)) return;
@@ -2543,8 +2631,19 @@ addEventListener('keydown', (e) => {
   if (S.scene) return;
   if (!$('#day-log').hidden) { if (e.key === 'Escape') $('#day-log').hidden = true; return; }
   if (e.key === 'Escape' && S.screen !== 'title') { e.preventDefault(); askToTitle(); return; }
-  if (/^[0-9]$/.test(e.key)) { audio.unlock(); press(e.key); e.preventDefault(); }
+  if (/^[0-9]$/.test(e.key)) {
+    audio.unlock();
+    const st = S.problem && S.problem.steps[S.step];
+    if (st && !/^[0-9]$/.test(st.digit)) {
+      // Symbol questions show no digits: 1..n picks the n-th key of that pad.
+      const keys = Object.keys(padButtons).filter((k) => k !== 'Backspace');
+      const k = keys[Number(e.key) - 1];
+      if (k) press(k);
+    } else press(e.key);
+    e.preventDefault();
+  }
   else if (e.key === 'Backspace') { press('Backspace'); e.preventDefault(); }
+  else if (SYMBOL_KEYS.has(e.key)) { audio.unlock(); press(e.key); e.preventDefault(); }
 });
 addEventListener('pointermove', (e) => { if (S.screen !== 'play' && !S.guideOpen) hero.lookAt({ x: e.clientX, y: e.clientY }); });
 addEventListener('resize', () => requestAnimationFrame(() => {

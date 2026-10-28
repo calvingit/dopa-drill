@@ -1,7 +1,7 @@
 // Validates generated column-arithmetic problems for the public app.
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { makeRng, generate, BASIC_SETS, EXTRA_TIERS } from '../app/js/problems.js';
+import { makeRng, generate, BASIC_SETS, EXTRA_TIERS, ANSWER_RE } from '../app/js/problems.js';
 
 const templates = [...new Set([...Object.values(BASIC_SETS).flat(), ...EXTRA_TIERS.flat()])];
 
@@ -20,7 +20,7 @@ test('every template yields steps that spell the correct answer', () => {
         assert.equal(Number(p.answer), p.kind === 'add' ? p.a + p.b : p.a - p.b);
       }
       for (const s of p.steps) {
-        assert.match(s.digit, /^[0-9]$/);
+        assert.match(s.digit, ANSWER_RE);
         assert.ok(p.cells.some((c) => c.id === s.cell && c.kind === 'input'));
         for (const id of s.after || []) assert.ok(p.cells.some((c) => c.id === id) || p.lines.some((l) => l.id === id), `${p.text} reveals ${id}`);
       }

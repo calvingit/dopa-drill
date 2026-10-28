@@ -1,0 +1,300 @@
+// Question forms (docs/SPEC.md 6.1): the extra generators and the two
+// transforms of column problems.
+//
+// Every case recomputes the arithmetic from the numbers the generator recorded
+// in `calc`, so a wording bug cannot pass silently. The transforms are held to
+// one invariant each, stated in the test name: one blank that is uniquely
+// determined, and one corrupted digit with everything else exact.
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import {
+  makeRng, makeProblem, applyStyle, styleProblem, signature,
+  ANSWER_RE, STYLE_KINDS, _internal,
+} from '../app/js/problems.js';
+import { SKILLS } from '../app/js/skills.js';
+
+const { GEN } = _internal;
+
+const calc = (op, a, b) => (op === '＋' ? a + b : op === '−' ? a - b : a * b);
+
+// Rebuild the number in row r, optionally replacing one cell's digit.
+function rowNumber(p, r, swap = null) {
+  const digits = p.cells
+    .filter((c) => c.r === r && /^[0-9]$/.test(c.text))
+    .sort((x, y) => x.c - y.c)
+    .map((c) => (swap && swap.id === c.id ? swap.digit : c.text))
+    .join('');
+  return Number(digits);
+}
+
+// ---------------------------------------------------------------- generators
+
+test('compare: the sign is decided by the two sides', () => {
+  const rng = makeRng(31);
+  const signs = new Set();
+  for (let i = 0; i < 400; i++) {
+    const p = GEN.compare(rng);
+    const c = p.calc;
+    assert.equal(calc(c.op, c.a, c.b), c.left, p.text);
+    assert.equal(c.rel, c.left < c.right ? '<' : c.left > c.right ? '>' : '=', p.text);
+    assert.equal(p.answer, c.rel, p.text);
+    assert.equal(p.steps.map((s) => s.digit).join(''), c.rel, p.text);
+    assert.match(c.rel, ANSWER_RE);
+    signs.add(c.rel);
+  }
+  assert.deepEqual([...signs].sort(), ['<', '=', '>']);
+});
+
+test('judge: the claim is right exactly when the answer says √', () => {
+  const rng = makeRng(32);
+  const marks = new Set();
+  for (let i = 0; i < 400; i++) {
+    const p = GEN.judge(rng);
+    const c = p.calc;
+    const truth = calc(c.op, c.a, c.b);
+    assert.equal(c.truth, truth, p.text);
+    assert.equal(c.right, c.claim === truth, `${p.text}: claim ${c.claim}, truth ${truth}`);
+    assert.ok(c.claim >= 0, p.text);
+    assert.equal(p.answer, c.right ? '√' : '×', p.text);
+    assert.equal(p.steps.map((s) => s.digit).join(''), p.answer, p.text);
+    marks.add(p.answer);
+  }
+  assert.deepEqual([...marks].sort(), ['×', '√']);
+});
+
+test('blank: the hidden number restores the equation', () => {
+  const rng = makeRng(33);
+  const divForms = new Set();
+  for (const ops of ['addsub', 'muldiv']) {
+    for (let i = 0; i < 300; i++) {
+      const p = GEN.blank(rng, { ops });
+      const { a, b, op, x, result, blank } = p.calc;
+      assert.equal(p.answer, String(blank), p.text);
+      assert.equal(p.steps.map((s) => s.digit).join(''), String(blank), p.text);
+      if (op === '＋') assert.equal((a !== undefined ? a : b) + blank, result, p.text);
+      else if (op === '−') assert.equal(a !== undefined ? a - blank : blank - b, result, p.text);
+      else if (op === '×') assert.equal(a * blank, result, p.text);
+      else {
+        assert.equal(b * x, result, p.text);
+        divForms.add(blank === result ? 'dividend' : 'divisor');
+      }
+      assert.ok(blank >= 1, `${p.text}: blank is ${blank}`);
+    }
+  }
+  // □ ÷ b ＝ x and a ÷ □ ＝ b both appear.
+  assert.deepEqual([...divForms].sort(), ['dividend', 'divisor']);
+});
+
+test('balance: both sides weigh the same', () => {
+  const rng = makeRng(34);
+  for (let i = 0; i < 300; i++) {
+    const p = GEN.balance(rng);
+    const c = p.calc;
+    assert.equal(c.lhsOp === '×' ? c.a * c.x : c.a + c.x, c.rhs, p.text);
+    assert.equal(p.answer, String(c.x), p.text);
+    assert.ok(c.x >= 1 && c.x <= 99, p.text);
+  }
+});
+
+test('place: the answer is the value the words name', () => {
+  const rng = makeRng(35);
+  const forms = new Set();
+  for (let i = 0; i < 400; i++) {
+    const p = GEN.place(rng);
+    const c = p.calc;
+    forms.add(c.form);
+    if (c.form === 'decompose') {
+      assert.equal(c.tens * 10 + c.ones, c.n, p.text);
+      assert.equal(p.answer, String(c.ones), p.text);
+    } else {
+      assert.equal(c.value, c.form === 'hundreds' ? c.k * 100 : c.k * 10, p.text);
+      assert.equal(p.answer, String(c.value), p.text);
+    }
+    assert.equal(p.steps.map((s) => s.digit).join(''), p.answer, p.text);
+  }
+  assert.deepEqual([...forms].sort(), ['decompose', 'hundreds', 'tens']);
+});
+
+test('units: conversions use the exact factor', () => {
+  const rng = makeRng(36);
+  for (let i = 0; i < 400; i++) {
+    const p = GEN.units(rng);
+    const c = p.calc;
+    assert.equal(c.ans, c.v * c.factor, p.text);
+    assert.notEqual(c.big, c.small, p.text);
+    assert.equal(p.answer, String(c.ans), p.text);
+    assert.equal(p.steps.map((s) => s.digit).join(''), p.answer, p.text);
+  }
+});
+
+test('time: minutes carry at sixty and hours stay one digit', () => {
+  const rng = makeRng(37);
+  let added = 0; let subbed = 0;
+  for (let i = 0; i < 400; i++) {
+    const p = GEN.time(rng);
+    const c = p.calc;
+    if (c.sub) subbed += 1; else added += 1;
+    const t1 = c.h1 * 60 + c.m1;
+    const t2 = c.sub ? t1 - c.delta : t1 + c.delta;
+    assert.equal(t2, c.h2 * 60 + c.m2, p.text);
+    assert.ok(c.h1 >= 1 && c.h1 <= 9, p.text);
+    assert.ok(c.h2 >= 1 && c.h2 <= 9, p.text);
+    assert.ok(c.m1 >= 0 && c.m1 < 60, p.text);
+    assert.ok(c.m2 >= 10 && c.m2 < 60, `${p.text}: minutes are ${c.m2}`);
+    assert.equal(p.answer, `${c.h2}${c.m2}`, p.text);
+    assert.equal(p.steps.map((s) => s.digit).join(''), p.answer, p.text);
+  }
+  assert.ok(added > 100 && subbed > 100, `added ${added}, subbed ${subbed}`);
+});
+
+test('estimate: the factor is rounded to its leading place first', () => {
+  const rng = makeRng(38);
+  for (let i = 0; i < 400; i++) {
+    const p = GEN.estimate(rng);
+    const c = p.calc;
+    const unit = c.a >= 100 ? 100 : 10;
+    assert.equal(c.rounded, Math.round(c.a / unit) * unit, p.text);
+    assert.notEqual(c.rounded, c.a, p.text);
+    assert.ok(Math.abs(c.a - c.rounded) <= unit / 2, p.text);
+    assert.equal(c.ans, c.rounded * c.b, p.text);
+    assert.equal(p.answer, String(c.ans), p.text);
+  }
+});
+
+test('sequence: every term follows the stated rule', () => {
+  const rng = makeRng(39);
+  const rules = new Set();
+  for (let i = 0; i < 400; i++) {
+    const p = GEN.sequence(rng);
+    const { terms, rule } = p.calc;
+    rules.add(rule.kind);
+    assert.equal(terms.length, 5, p.text);
+    terms.forEach((v, k) => {
+      const want = rule.kind === 'mul' ? rule.start * rule.k ** k : rule.start + rule.d * k;
+      assert.equal(v, want, `${p.text}: term ${k}`);
+    });
+    assert.equal(p.answer, String(terms[3]), p.text);
+    assert.equal(p.steps.map((s) => s.digit).join(''), p.answer, p.text);
+  }
+  assert.deepEqual([...rules].sort(), ['add', 'mul']);
+});
+
+// ---------------------------------------------------------------- transforms
+
+test('missing: one blank, uniquely determined, the rest untouched', () => {
+  const rng = makeRng(41);
+  let seen = 0;
+  for (const sk of SKILLS) {
+    for (let i = 0; i < 4; i++) {
+      const p = makeProblem(sk.id, rng);
+      const q = applyStyle(p, 'missing', rng);
+      if (!q) {
+        const hasPoint = p.cells.some((c) => c.text === '.');
+        assert.ok(!(STYLE_KINDS.has(p.kind) && !hasPoint), `${sk.id} ${p.text}: should support missing`);
+        continue;
+      }
+      seen += 1;
+      const inputs = q.cells.filter((c) => c.kind === 'input');
+      assert.equal(inputs.length, 1, `${sk.id} ${p.text}`);
+      assert.equal(q.steps.length, 1, `${sk.id} ${p.text}`);
+      assert.equal(q.steps[0].cell, inputs[0].id);
+
+      // The expected digit is the one the original problem showed there.
+      const target = p.cells.find((c) => c.id === q.steps[0].cell);
+      assert.equal(target.kind, 'given', `${sk.id}: blank must come from a known digit`);
+      assert.equal(q.steps[0].digit, target.text, `${sk.id} ${p.text}`);
+
+      // Nothing else moved: same cells, same digits, same answer.
+      assert.deepEqual(q.cells.map((c) => c.id), p.cells.map((c) => c.id), sk.id);
+      for (const c of q.cells) assert.equal(c.text, p.cells.find((x) => x.id === c.id).text, `${sk.id} ${c.id}`);
+      assert.equal(q.answer, p.answer, sk.id);
+      assert.equal(q.showAll, true, sk.id);
+
+      // Exactly one digit restores the arithmetic.
+      const want = Number(p.answer);
+      let solutions = 0;
+      for (let d = 0; d <= 9; d += 1) {
+        const swap = { id: target.id, digit: String(d) };
+        const a = rowNumber(q, 1, swap);
+        const b = rowNumber(q, 2, swap);
+        const got = p.kind === 'add' ? a + b : p.kind === 'sub' ? a - b : a * b;
+        if (got === want) solutions += 1;
+      }
+      assert.equal(solutions, 1, `${sk.id} ${p.text}: ${solutions} digits fit the blank`);
+    }
+  }
+  assert.ok(seen >= 60, `only ${seen} missing samples`);
+});
+
+test('find-error: exactly one corrupted digit, everything else exact', () => {
+  const rng = makeRng(42);
+  let seen = 0;
+  for (const sk of SKILLS) {
+    for (let i = 0; i < 4; i++) {
+      const p = makeProblem(sk.id, rng);
+      const q = applyStyle(p, 'find-error', rng);
+      if (!q) {
+        // Only a problem without any numeric input cell can refuse.
+        assert.ok(!p.cells.some((c) => c.kind === 'input' && /^[0-9]$/.test(c.text)), `${sk.id} ${p.text}`);
+        continue;
+      }
+      seen += 1;
+      const inputs = q.cells.filter((c) => c.kind === 'input');
+      assert.equal(inputs.length, 1, `${sk.id} ${p.text}`);
+      assert.equal(q.steps.length, 1, `${sk.id} ${p.text}`);
+      const target = inputs[0];
+      assert.equal(q.steps[0].cell, target.id, sk.id);
+      assert.equal(q.steps[0].digit, target.text, `${sk.id} ${p.text}`);
+
+      // The cell shows a wrong digit; the expected one is the original.
+      assert.equal(q.findError.cell, target.id, sk.id);
+      assert.equal(q.findError.right, q.steps[0].digit, sk.id);
+      assert.equal(target.pre, q.findError.wrong, sk.id);
+      assert.notEqual(target.pre, target.text, `${sk.id} ${p.text}`);
+      assert.match(target.pre, /^[0-9]$/);
+
+      // Every other cell is exactly the true working, with no prefilled value.
+      assert.deepEqual(q.cells.map((c) => c.id), p.cells.map((c) => c.id), sk.id);
+      for (const c of q.cells) {
+        assert.equal(c.text, p.cells.find((x) => x.id === c.id).text, `${sk.id} ${c.id}`);
+        if (c.id !== target.id) assert.equal(c.pre, undefined, `${sk.id} ${c.id} prefilled`);
+      }
+      assert.equal(q.answer, p.answer, sk.id);
+    }
+  }
+  assert.ok(seen >= 400, `only ${seen} find-error samples`);
+});
+
+test('makeProblem takes a style, and an unsupported one falls back to direct', () => {
+  const a = makeProblem('g2-vadd2-c', makeRng(7), null, 'missing');
+  const b = makeProblem('g2-vadd2-c', makeRng(7), null, 'missing');
+  assert.equal(a.style, 'missing');
+  assert.equal(signature(a), signature(b), 'a styled problem must replay from its seed');
+  assert.notEqual(signature(a), signature(makeProblem('g2-vadd2-c', makeRng(7))));
+
+  // compose is a horizontal one-cell question: nothing to blank.
+  const c = makeProblem('g1-compose10', makeRng(7), null, 'missing');
+  assert.equal(c.style, undefined);
+
+  // Unknown styles are not silently applied either.
+  assert.equal(applyStyle(a, 'nope', makeRng(1)), null);
+});
+
+test('styleProblem is deterministic and only ever yields a valid form', () => {
+  const rng = makeRng(50);
+  let styled = 0;
+  for (let i = 0; i < 200; i += 1) {
+    const p = makeProblem('g2-vadd2-c', rng);
+    const q = styleProblem(p, rng);
+    assert.ok(!q.style || q.style === 'missing' || q.style === 'find-error', q.style);
+    // A restyled question always leaves exactly one cell to fill.
+    if (q.style) {
+      styled += 1;
+      assert.equal(q.cells.filter((c) => c.kind === 'input').length, 1, `${q.title} ${q.text}`);
+      assert.equal(q.steps.length, 1, `${q.title} ${q.text}`);
+    } else {
+      assert.equal(q, p);
+    }
+  }
+  assert.ok(styled > 20 && styled < 140, `styled ${styled} of 200`);
+});

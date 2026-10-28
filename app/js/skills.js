@@ -21,6 +21,12 @@ export const SKILLS = [
   { id: 'g1-sub-2d2', name: '两位数减两位数', grade: 1, lane: 0, req: ['g1-sub-2d1', 'g1-add-2d2'], gen: ['hsub', { a: [21, 99], b: [11, 89], borrow: 'none' }] },
   { id: 'g1-add-2d-c', name: '两位数进位加法', grade: 1, lane: 0, req: ['g1-add-c', 'g1-add-2d2'], gen: ['hadd', { a: [11, 89], b: [1, 89], carry: 'yes', maxSum: 100 }] },
   { id: 'g1-sub-2d-b', name: '两位数退位减法', grade: 1, lane: 0, req: ['g1-sub-b', 'g1-sub-2d2'], gen: ['hsub', { a: [21, 100], b: [1, 89], borrow: 'yes' }] },
+  // Question-form axis (docs/SPEC.md 6.1): one blank in a shown equation, and
+  // reading a number by its places. Both are single-cell answers. 填方框 sits
+  // in 其他 next to 解方程 — it is the same idea one step earlier.
+  { id: 'g1-blank', name: '填方框', grade: 1, lane: 3, req: ['g1-add-2d-c'], gen: ['blank', { max: 100 }] },
+  { id: 'g1-place', name: '数位与组成', grade: 1, lane: 3, req: ['g1-compose10'], gen: ['place', {}] },
+  { id: 'g1-sequence', name: '找规律', grade: 1, lane: 3, req: ['g1-add-nc'], gen: ['sequence', {}] },
 
   // ---------------------------------------------------------------- grade 2
   { id: 'g2-vadd2-nc', name: '两位数加法竖式', grade: 2, lane: 0, req: ['g1-add-2d1'], gen: ['vadd', { da: 2, db: 2, carry: 'none', maxDigits: 2 }] },
@@ -36,6 +42,10 @@ export const SKILLS = [
   { id: 'g2-kuku67', name: '6和7的乘法口诀', grade: 2, lane: 1, req: ['g2-kuku34'], gen: ['kuku', { dans: [6, 7] }] },
   { id: 'g2-kuku891', name: '8、9、1的乘法口诀', grade: 2, lane: 1, req: ['g2-kuku67'], gen: ['kuku', { dans: [8, 9, 1] }] },
   { id: 'g2-kuku-mix', name: '口诀混合', grade: 2, lane: 1, req: ['g2-kuku891'], gen: ['kuku', { dans: [1, 2, 3, 4, 5, 6, 7, 8, 9] }] },
+  { id: 'g2-balance', name: '数字天平', grade: 2, lane: 1, req: ['g2-kuku25'], gen: ['balance', {}] },
+  { id: 'g2-compare', name: '比较大小', grade: 2, lane: 3, req: ['g2-kuku25'], gen: ['compare', {}] },
+  { id: 'g2-units', name: '单位换算', grade: 2, lane: 3, req: ['g1-add-nc'], gen: ['units', {}] },
+  { id: 'g2-time', name: '时间计算', grade: 2, lane: 3, req: ['g1-add-c'], gen: ['time', {}] },
 
   // ---------------------------------------------------------------- grade 3
   { id: 'g3-vadd3', name: '三位数加法', grade: 3, lane: 0, req: ['g2-vadd3s'], gen: ['vadd', { da: 3, db: 3, carry: 'some', maxDigits: 3 }] },
@@ -61,6 +71,9 @@ export const SKILLS = [
   { id: 'g3-dec-sub1', name: '小数减法', grade: 3, lane: 2, req: ['g3-dec-add1', 'g2-vsub2-b'], gen: ['vdec', { op: 'sub', places: 1, aMax: 499, bMax: 499, intMinuend: true }] },
   { id: 'g2-frac-of', name: '二分之一和四分之一', grade: 3, lane: 2, req: ['g2-kuku25'], gen: ['fracOf', { dens: [2, 4] }] },
   { id: 'g3-frac-same', name: '分数加减', grade: 3, lane: 2, req: ['g2-frac-of'], gen: ['frac', { op: 'addsub', same: true, maxOne: true, dMax: 10, fromOne: true }] },
+  { id: 'g3-blank-muldiv', name: '乘除填方框', grade: 3, lane: 1, req: ['g3-div-basic'], gen: ['blank', { ops: 'muldiv' }] },
+  { id: 'g3-estimate', name: '估算', grade: 3, lane: 3, req: ['g3-hmul-2x1'], gen: ['estimate', {}] },
+  { id: 'g3-judge', name: '判断题', grade: 3, lane: 3, req: ['g2-kuku-mix'], gen: ['judge', {}] },
 
   // ---------------------------------------------------------------- grade 4
   { id: 'g4-vdiv-2d1', name: '两位数除以一位数竖式', grade: 4, lane: 1, req: ['g3-div-rem', 'g3-div-tens'], gen: ['vdiv', { dd: 2, ds: 1 }] },

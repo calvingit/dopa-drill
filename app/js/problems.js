@@ -5,6 +5,12 @@
 //   and horizontal expressions (integers, decimals, fractions, remainders).
 import { SKILL } from './skills.js';
 
+// Every step types exactly one character from this set. Comparison questions
+// answer with < = > and judgement questions with √ × (the minus sign is
+// reserved for negative results). main.js keys its keypad off the steps, so a
+// new character only needs a matching key there.
+export const ANSWER_RE = /^[0-9<>=\-√×]$/;
+
 export function makeRng(seed) {
   let s = seed >>> 0;
   return () => {
@@ -273,7 +279,7 @@ function buildH(tokens, meta) {
     if (t.n !== undefined || t.op !== undefined || t.w !== undefined) {
       const text = String(t.n ?? t.op ?? t.w);
       const kind = t.n !== undefined ? 'given' : t.op !== undefined ? 'op' : 'word';
-      const w = kind === 'word' ? Math.max(1, Math.ceil(text.length / 2)) : kind === 'given' ? text.replace('.', '').length : 1;
+      const w = kind === 'word' ? (t.cw ?? Math.max(1, Math.ceil(text.length / 2))) : kind === 'given' ? text.replace('.', '').length : 1;
       const cid = id(kind[0]);
       cells.push({ id: cid, r, c, cs: w, ...span, text, kind });
       if (kind === 'given') ansIds.push(cid);
@@ -283,7 +289,7 @@ function buildH(tokens, meta) {
       for (const ch of s) {
         if (ch === '.') { cells.push({ id: id('dot'), r, c: c - 1, ...span, text: '.', kind: 'dot' }); continue; }
         const cid = id('x');
-        cells.push({ id: cid, r, c, ...span, text: ch, kind: 'input' });
+        cells.push({ id: cid, r, c, ...span, text: ch, kind: 'input', ph: t.ph });
         steps.push({ cell: cid, digit: ch, label: t.label || '答案', after: [], help: meta.help ? { ids: [...ansIds], text: meta.help } : null });
         c += 1;
       }
@@ -1566,13 +1572,262 @@ const GEN = {
     }
     throw new Error(`frac ${op}`);
   },
+
+  // ================================================================ extra forms
+  // The same engine (one character per step) asked in other ways. Each states
+  // its own arithmetic in `calc`; the tests recompute that, so a wording bug
+  // cannot pass silently.
+
+  // 比较大小: 38 ＋ 25 ○ 60. Only the comparison sign is typed, which is what
+  // ANSWER_RE's < = > are for. The relation is chosen first, so all three
+  // appear about equally often.
+  compare(rng) {
+    const r = R(rng);
+    const form = r(0, 2);
+    let a; let b; let op; let left;
+    if (form === 0) { a = r(11, 68); b = r(11, 88); left = a + b; op = '＋'; }
+    else if (form === 1) { a = r(31, 98); b = r(11, a - 10); left = a - b; op = '−'; }
+    else { a = r(2, 9); b = r(2, 9); left = a * b; op = '×'; }
+    const rel = pickOf(rng, ['<', '=', '>']);
+    const d = r(1, Math.min(9, left));
+    const right = rel === '=' ? left : rel === '<' ? left + d : left - d;
+    return buildH([
+      { n: a }, { op }, { n: b }, { ans: rel, ph: '○', label: '比较' }, { n: right },
+    ], {
+      title: '比较大小', text: `${a} ${op} ${b} ○ ${right}`, answer: rel,
+      answerText: `${a} ${op} ${b} ${rel} ${right}`, help: `先算 ${a} ${op} ${b} ＝ ${left}`,
+      // Showing only the right sign would give the answer away.
+      pad: ['<', '=', '>'],
+      calc: { a, b, op, left, right, rel },
+    });
+  },
+
+  // 判断题: 37 × 3 ＝ 111（）. The statement is right or wrong; the answer is
+  // √ (对) or × (错), so this one needs two keys of its own.
+  judge(rng) {
+    const r = R(rng);
+    const op = pickOf(rng, ['＋', '−', '×']);
+    let a; let b; let truth;
+    if (op === '＋') { a = r(12, 89); b = r(12, 88); truth = a + b; }
+    else if (op === '−') { a = r(31, 99); b = r(11, a - 10); truth = a - b; }
+    else { a = r(2, 9); b = r(2, 9); truth = a * b; }
+    const right = rng() < 0.5;
+    const d = r(1, 3);
+    // A wrong claim stays non-negative and never accidentally true.
+    const claim = right ? truth : (rng() < 0.5 || truth < d ? truth + d : truth - d);
+    const mark = right ? '√' : '×';
+    return buildH([
+      { n: a }, { op }, { n: b }, { op: '＝' }, { n: claim },
+      { w: '（', cw: 1 }, { ans: mark, label: '对填 √ 错填 ×' }, { w: '）', cw: 1 },
+    ], {
+      title: '判断题', text: `${a} ${op} ${b} ＝ ${claim}（　）`, answer: mark,
+      answerText: `${a} ${op} ${b} ＝ ${truth}（${right ? '对' : '错'}）`,
+      help: `先算 ${a} ${op} ${b} ＝ ${truth}`,
+      pad: ['√', '×'],
+      calc: { a, b, op, truth, claim, right },
+    });
+  },
+
+  // 填方框: 7 ＋ □ ＝ 15. One operand is hidden and the rest is shown, so the
+  // blank is the only unknown.
+  blank(rng, { ops = 'addsub', max = 99 } = {}) {
+    const r = R(rng);
+    const form = r(0, 3);
+    let a; let b; let x; let op; let result; let toks;
+    if (ops === 'muldiv') {
+      if (form < 2) {
+        a = r(2, 9); x = r(2, 9); result = a * x; op = '×';
+        toks = form === 0
+          ? [{ n: a }, { op }, { an: x }, { op: '＝' }, { n: result }]
+          : [{ an: x }, { op }, { n: a }, { op: '＝' }, { n: result }];
+      } else {
+        b = r(2, 9); x = r(2, 9); result = b * x; op = '÷';
+        if (form === 2) {
+          toks = [{ n: result }, { op }, { an: x }, { op: '＝' }, { n: b }];
+        } else {
+          // □ ÷ b ＝ x hides the dividend, not the quotient.
+          toks = [{ an: result }, { op }, { n: b }, { op: '＝' }, { n: x }];
+        }
+      }
+    } else {
+      if (form === 0) { a = r(2, max - 4); x = r(2, max - a); op = '＋'; result = a + x; toks = [{ n: a }, { op }, { an: x }, { op: '＝' }, { n: result }]; }
+      else if (form === 1) { b = r(2, max - 4); x = r(2, max - b); op = '＋'; result = b + x; toks = [{ an: x }, { op }, { n: b }, { op: '＝' }, { n: result }]; }
+      else if (form === 2) { a = r(4, max); x = r(2, a - 2); op = '−'; result = a - x; toks = [{ n: a }, { op }, { an: x }, { op: '＝' }, { n: result }]; }
+      else { b = r(2, max - 4); x = r(b + 1, max); op = '−'; result = x - b; toks = [{ an: x }, { op }, { n: b }, { op: '＝' }, { n: result }]; }
+    }
+    const blank = toks.find((t) => t.an !== undefined).an;
+    return buildH(toks.map((t) => (t.an !== undefined ? { ans: String(t.an), ph: '□', label: '方框' } : t)), {
+      title: '填方框', text: toks.map((t) => (t.an !== undefined ? '□' : t.n ?? t.op)).join(' '),
+      answer: String(blank), answerText: toks.map((t) => (t.an !== undefined ? t.an : t.n ?? t.op)).join(' '),
+      help: '把算式倒过来想', calc: { a, b, op, x, result, blank },
+    });
+  },
+
+  // 数字天平: 8 × □ ＝ 4 × 6. Both sides balance; one number is missing.
+  balance(rng) {
+    const r = R(rng);
+    for (let g = 0; g < 300; g++) {
+      const b = r(2, 9); const c = r(2, 9); const rhs = b * c;
+      if (rng() < 0.5) {
+        const ds = [2, 3, 4, 5, 6, 7, 8, 9].filter((d) => rhs % d === 0);
+        if (!ds.length) continue;
+        const a = pickOf(rng, ds); const x = rhs / a;
+        if (x < 1 || x > 99) continue;
+        return buildH([
+          { n: a }, { op: '×' }, { ans: x, ph: '□', label: '方框' }, { op: '＝' }, { n: b }, { op: '×' }, { n: c },
+        ], {
+          title: '数字天平', text: `${a} × □ ＝ ${b} × ${c}`, answer: String(x),
+          answerText: `${a} × ${x} ＝ ${b} × ${c}`, help: `右边是 ${rhs}`, calc: { x, rhs, lhsOp: '×', a },
+        });
+      }
+      const a = r(2, Math.max(2, rhs - 2)); const x = rhs - a;
+      if (x < 1 || x > 99) continue;
+      return buildH([
+        { n: a }, { op: '＋' }, { ans: x, ph: '□', label: '方框' }, { op: '＝' }, { n: b }, { op: '×' }, { n: c },
+      ], {
+        title: '数字天平', text: `${a} ＋ □ ＝ ${b} × ${c}`, answer: String(x),
+        answerText: `${a} ＋ ${x} ＝ ${b} × ${c}`, help: `右边是 ${rhs}`, calc: { x, rhs, lhsOp: '＋', a },
+      });
+    }
+    throw new Error('balance');
+  },
+
+  // 数位与组成: 47 ＝ 40 ＋ □, 3 个十是 □.
+  place(rng) {
+    const r = R(rng);
+    const form = r(0, 2);
+    if (form === 0) {
+      const t = r(1, 9); const o = r(1, 9); const n = t * 10 + o;
+      return buildH([
+        { n }, { op: '＝' }, { n: t * 10 }, { op: '＋' }, { ans: o, ph: '□', label: '方框' },
+      ], {
+        title: '数位与组成', text: `${n} ＝ ${t * 10} ＋ □`, answer: String(o),
+        answerText: `${n} ＝ ${t * 10} ＋ ${o}`, help: `${n} 的个位是 ${o}`,
+        calc: { form: 'decompose', n, tens: t, ones: o },
+      });
+    }
+    const k = r(2, 9);
+    const isHundred = form === 2;
+    const unitWord = isHundred ? '个百是' : '个十是';
+    const value = isHundred ? k * 100 : k * 10;
+    return buildH([
+      { n: k }, { w: unitWord, cw: 3 }, { ans: value, ph: '□', label: '方框' },
+    ], {
+      title: '数位与组成', text: `${k} ${unitWord} □`, answer: String(value),
+      answerText: `${k} ${unitWord} ${value}`, help: isHundred ? `1个百是 100` : `1个十是 10`,
+      calc: { form: isHundred ? 'hundreds' : 'tens', k, value },
+    });
+  },
+
+  // 单位换算: 2米 ＝ □厘米. Exact factors only, so the blank is unique.
+  units(rng) {
+    const r = R(rng);
+    const PAIRS = [
+      ['米', '厘米', 100], ['分米', '厘米', 10], ['千米', '米', 1000],
+      ['千克', '克', 1000], ['吨', '千克', 1000], ['元', '角', 10],
+      ['角', '分', 10], ['时', '分', 60], ['分', '秒', 60], ['升', '毫升', 1000],
+    ];
+    const [big, small, factor] = pickOf(rng, PAIRS);
+    const v = factor === 10 ? r(2, 99) : r(2, 9);
+    const ans = v * factor;
+    return buildH([
+      { n: v }, { w: big, cw: big.length }, { op: '＝' }, { ans, ph: '□', label: '方框' }, { w: small, cw: small.length },
+    ], {
+      title: '单位换算', text: `${v}${big} ＝ □${small}`, answer: String(ans),
+      answerText: `${v}${big} ＝ ${ans}${small}`, help: `1${big} ＝ ${factor}${small}`,
+      calc: { v, factor, big, small, ans },
+    });
+  },
+
+  // 时间计算: 8时30分 ＋ 45分 ＝ □时□分. Hours stay single digits, minutes
+  // always take two, so the two blanks are distinct.
+  time(rng) {
+    const r = R(rng);
+    const sub = rng() < 0.45;
+    for (let g = 0; g < 300; g++) {
+      const t1 = r(14, 59) * 10; // 1:10 .. 9:50, always a multiple of ten
+      const delta = r(1, 8) * 10; // 10 .. 80
+      const t2 = sub ? t1 - delta : t1 + delta;
+      if (t2 < 60 || t2 >= 600) continue;
+      const h1 = Math.floor(t1 / 60); const m1 = t1 % 60;
+      const h2 = Math.floor(t2 / 60); const m2 = t2 % 60;
+      if (m2 < 10) continue;
+      const op = sub ? '−' : '＋';
+      return buildH([
+        { n: h1 }, { w: '时', cw: 1 }, { n: m1 }, { w: '分', cw: 1 },
+        { op }, { n: delta }, { w: '分', cw: 1 }, { op: '＝' },
+        { ans: h2, label: '时' }, { w: '时', cw: 1 }, { ans: m2, label: '分' }, { w: '分', cw: 1 },
+      ], {
+        title: '时间计算', text: `${h1}时${m1}分 ${op} ${delta}分`, answer: `${h2}${m2}`,
+        answerText: `${h1}时${m1}分 ${op} ${delta}分 ＝ ${h2}时${m2}分`,
+        help: `1时 ＝ 60分`,
+        calc: { h1, m1, delta, sub, h2, m2 },
+      });
+    }
+    throw new Error('time');
+  },
+
+  // 估算: 198 × 3 ≈ □. The factor is rounded to its leading place first, so
+  // the answer is one round number, not a judgement call.
+  estimate(rng) {
+    const r = R(rng);
+    for (let g = 0; g < 300; g++) {
+      const a = r(12, 989);
+      const unit = a >= 100 ? 100 : 10;
+      if (a % unit === 0) continue;
+      const rounded = Math.round(a / unit) * unit;
+      if (rounded === a || rounded < 10) continue;
+      const b = r(2, 9);
+      const ans = rounded * b;
+      return buildH([
+        { n: a }, { op: '×' }, { n: b }, { op: '≈' }, { ans, ph: '□', label: '估一估' },
+      ], {
+        title: '估算', text: `${a} × ${b} ≈ □`, answer: String(ans),
+        answerText: `${a} × ${b} ≈ ${rounded} × ${b} ＝ ${ans}`,
+        help: `把 ${a} 看成 ${rounded}`, calc: { a, b, rounded, ans },
+      });
+    }
+    throw new Error('estimate');
+  },
+
+  // 找规律: 2，4，8，□，32. Five terms, the fourth blank, one obvious rule.
+  sequence(rng) {
+    const r = R(rng);
+    const byMul = rng() < 0.4;
+    const terms = [];
+    let rule;
+    if (byMul) {
+      const s = r(1, 5); const k = r(2, 4);
+      for (let i = 0; i < 5; i++) terms.push(s * k ** i);
+      if (terms[4] > 999) return GEN.sequence(rng);
+      rule = { kind: 'mul', start: s, k };
+    } else {
+      const s = r(2, 20); const d = r(2, 9);
+      for (let i = 0; i < 5; i++) terms.push(s + d * i);
+      if (terms[4] > 999) return GEN.sequence(rng);
+      rule = { kind: 'add', start: s, d };
+    }
+    const toks = [];
+    terms.forEach((v, i) => {
+      if (i) toks.push({ w: '，', cw: 1 });
+      toks.push(i === 3 ? { ans: v, ph: '□', label: '缺的数' } : { n: v });
+    });
+    const shown = terms.map((v, i) => (i === 3 ? '□' : v)).join('，');
+    return buildH(toks, {
+      title: '找规律', text: shown, answer: String(terms[3]),
+      answerText: terms.join('，'),
+      help: rule.kind === 'mul' ? `每次都乘 ${rule.k}` : `每次都加 ${rule.d}`,
+      calc: { terms, rule, blank: 3 },
+    });
+  },
 };
 
 // Signature used to avoid repeats.
 export const signature = (p) => `${p.title}|${p.text}`;
 
 // Make one problem for a skill, avoiding signatures in `recent` when possible.
-export function makeProblem(skillId, rng, recent = null) {
+// `style` picks a question form (see applyStyle); the default is the direct one.
+export function makeProblem(skillId, rng, recent = null, style = 'direct') {
   const sk = SKILL[skillId];
   if (!sk) throw new Error(`unknown skill ${skillId}`);
   const [name, params] = sk.gen;
@@ -1582,12 +1837,93 @@ export function makeProblem(skillId, rng, recent = null) {
     if (!recent || !recent.has(signature(p))) break;
   }
   p.skill = skillId;
-  return finalize(p);
+  finalize(p);
+  if (style && style !== 'direct') {
+    const q = applyStyle(p, style, rng);
+    if (q) return q;
+  }
+  return p;
 }
 
 function finalize(p) {
-  p.answerText = p.kind === 'h' ? `${p.text} ＝ ${p.answer}` : `${p.text} ＝ ${p.answer}`;
+  p.answerText = p.answerText || `${p.text} ＝ ${p.answer}`;
   return p;
+}
+
+// ================================================================ question forms
+// A vertical calculation can be asked in three ways. 'direct' is the original
+// question; the other two are pure transforms of it, so every column skill
+// gains them without a new generator and without touching the layouts.
+//
+//   missing     the working is shown and one operand digit is blanked
+//   find-error  the working is shown with one digit wrong; fix that digit
+//
+// Both keep exactly one input cell, so the existing ordered step model still
+// fits. Hiding a digit from a single operand while showing the result leaves
+// the blank uniquely determined (the operand value is forced); corrupting one
+// displayed digit leaves exactly one correction. Those are the invariants the
+// tests assert.
+
+// Long division is left out on purpose: its intermediate rows encode the same
+// digits, so blanking one dividend digit would be answered in several places.
+export const STYLE_KINDS = new Set(['add', 'sub', 'mul']);
+
+const isDigitCell = (c) => c.kind === 'given' && /^[0-9]$/.test(c.text);
+const pickIdx = (rng, n) => Math.min(n - 1, Math.floor(rng() * n));
+
+export function applyStyle(p, style, rng) {
+  if (style === 'missing') return asMissing(p, rng);
+  if (style === 'find-error') return asFindError(p, rng);
+  return null;
+}
+
+function asMissing(p, rng) {
+  if (!STYLE_KINDS.has(p.kind)) return null;
+  // Decimals are left to find-error: reading the blank back needs the point
+  // alignment, which is a different lesson.
+  if (p.cells.some((c) => c.text === '.')) return null;
+  const q = structuredClone(p);
+  const targets = q.cells.filter(isDigitCell);
+  const answers = q.cells.filter((c) => c.kind === 'input');
+  if (!targets.length || !answers.length) return null;
+  const target = targets[pickIdx(rng, targets.length)];
+  const removed = q.steps;
+  // Show the finished working so the blank can be deduced.
+  for (const c of answers) c.kind = 'given';
+  target.kind = 'input';
+  q.showAll = true;
+  q.preMarks = removed.flatMap((s) => s.marks || []);
+  q.steps = [{ cell: target.id, digit: target.text, label: '填一填', after: [], help: null }];
+  q.style = 'missing';
+  q.title = `${q.title}（填缺数）`;
+  return q;
+}
+
+function asFindError(p, rng) {
+  const q = structuredClone(p);
+  const inputs = q.cells.filter((c) => c.kind === 'input' && /^[0-9]$/.test(c.text));
+  if (!inputs.length) return null;
+  const target = inputs[pickIdx(rng, inputs.length)];
+  const right = target.text;
+  // 1..9 away from the truth: always a different digit.
+  const wrong = String((Number(right) + 1 + Math.floor(rng() * 9)) % 10);
+  for (const c of inputs) if (c.id !== target.id) c.kind = 'given';
+  target.pre = wrong;
+  q.showAll = true;
+  q.preMarks = q.steps.flatMap((s) => s.marks || []);
+  q.steps = [{ cell: target.id, digit: right, label: '改正这一位', after: [], help: null }];
+  q.style = 'find-error';
+  q.title = `${q.title}（找错）`;
+  q.findError = { cell: target.id, wrong, right };
+  return q;
+}
+
+// Pick a question form for one problem. Falls back to the direct question when
+// the layout does not support the chosen style.
+export function styleProblem(p, rng, chance = 0.28) {
+  if (rng() >= chance) return p;
+  const style = rng() < 0.5 ? 'missing' : 'find-error';
+  return applyStyle(p, style, rng) || p;
 }
 
 // ================================================================ legacy templates (fixed basic set)

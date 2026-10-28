@@ -1,7 +1,7 @@
 // Every skill generator yields consistent, well-formed problems (id020).
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { makeRng, makeProblem, signature } from '../app/js/problems.js';
+import { makeRng, makeProblem, signature, ANSWER_RE } from '../app/js/problems.js';
 import { SKILLS } from '../app/js/skills.js';
 
 const num = (s) => Number(String(s).replace(/,/g, ''));
@@ -31,7 +31,8 @@ function checkLayout(p) {
   const ids = new Set(p.cells.map((c) => c.id));
   for (const st of p.steps) {
     assert.ok(ids.has(st.cell), `${p.skill}: step cell ${st.cell}`);
-    assert.match(st.digit, /^\d$/);
+    // One character per step: digits, and the comparison / judgement marks.
+    assert.match(st.digit, ANSWER_RE);
     for (const a of st.after) assert.ok(ids.has(a) || (p.lines || []).some((l) => l.id === a), `${p.skill}: after ${a}`);
   }
   assert.ok(p.steps.length >= 1);
