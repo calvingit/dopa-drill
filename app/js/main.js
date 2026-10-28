@@ -3,6 +3,7 @@
 import { startClock, onFrame, wait, tween, clamp, lerp, rand, pick, chance, centerOf, params,
   easeOutBack, easeOutCubic, easeInCubic, easeInOutCubic, easeOutQuint } from './core.js';
 import { makeRng, generate, makeProblem, signature, styleProblem, BASIC_SETS, EXTRA_TIERS } from './problems.js';
+import { newCursor, stepAt, accept, focusCell, filled, complete } from './input.js';
 import { AudioEngine } from './audio.js';
 import { Dopakichi, COSTUMES, dopakichiSVG } from './dopakichi.js';
 import { FX } from './fx.js';
@@ -93,7 +94,7 @@ function setPad(p) {
 }
 
 const S = {
-  screen: 'title', N: 10, rng: null, qi: 0, problems: [], problem: null, step: 0,
+  screen: 'title', N: 10, rng: null, qi: 0, problems: [], problem: null, cursor: null,
   E: 0.06, visualE: 0.02, level: 0, ready: false, reach: false, shownWrong: null, wrongInQ: false,
   firstTry: 0, solved: 0, misses: 0, combo: 0, comboEnd: 0, comboLimit: 1, startT: 0, endT: 0, targetMs: 0, mode: 'basic',
   extra: { score: 0, solved: 0, misses: 0, end: 0, over: false }, digitsDone: 0, digitsTotal: 1,
@@ -368,13 +369,14 @@ function fitSheet(p) {
   sheet.style.setProperty('--ch', `${ch.toFixed(1)}px`);
 }
 
-function activate(k) {
+function activate() {
   const p = S.problem;
-  $$('.cell.active').forEach((c) => c.classList.remove('active', 'has'));
-  const st = p.steps[k];
+  $$('.cell.active').forEach((c) => { c.classList.remove('active', 'has'); c.removeAttribute('aria-current'); });
+  const st = stepAt(p, S.cursor);
   if (!st) return;
   const cell = S.cells[st.cell];
   cell.classList.add('active');
+  cell.setAttribute('aria-current', 'true');
   if (st.marks) {
     for (const m of st.marks) {
       const mk = S.cells[`m${m.c}`]; const top = S.cells[`a${m.c}`];
@@ -385,10 +387,11 @@ function activate(k) {
     }
   }
   S.stepMisses = 0;
-  armCombo(k === 0);
+  armCombo(filled(p, S.cursor) === 0);
   $$('.cell.hint-glow').forEach((c) => c.classList.remove('hint-glow'));
   $('#step-label').innerHTML = `<b>${st.label}</b>${st.hint ? `　${st.hint}` : ''}`;
-  if (k === p.steps.length - 1 && k > 0 && S.E >= 0.45 && !S.reach) startReach();
+  const done = filled(p, S.cursor);
+  if (done === p.steps.length - 1 && done > 0 && S.E >= 0.45 && !S.reach) startReach();
 }
 
 // ---------------------------------------------------------------- flow
@@ -448,7 +451,7 @@ async function setupProblem() {
     S.problem = S.problems[S.qi] || (S.problems[S.qi] = nextProblem(S.qi));
   }
   const p = S.problem;
-  S.step = 0; S.wrongInQ = false; S.shownWrong = null;
+  S.cursor = newCursor(p); S.wrongInQ = false; S.shownWrong = null;
   $$('.pip').forEach((pp, i) => pp.classList.toggle('now', !extra && i === S.qi));
   $('#qtitle').textContent = p.title;
   $('#qno').textContent = extra ? `EX ${S.extra.solved + 1}` : `第${S.qi + 1}题`;
@@ -469,7 +472,7 @@ async function setupProblem() {
   S.ready = true;
   // Answer time counts only while input is open (id033).
   S.qStart = now(); S.qMisses = 0; S.qMs = 0;
-  activate(0);
+  activate();
 }
 
 async function cardEnter(E) {
@@ -502,16 +505,16 @@ function press(key, btn = padButtons[key]) {
   if (key === 'Backspace') { erase(); return; }
   if (!S.ready) return;
   const p = S.problem;
-  const st = p.steps[S.step];
+  const st = stepAt(p, S.cursor);
   if (!st) return;
   const cell = S.cells[st.cell];
   audio.keyTap(S.combo);
   const from = btn ? centerOf(btn) : centerOf(cell);
   if (key === st.digit) {
-    S.step += 1;
+    S.cursor = accept(p, S.cursor, st);
     addCombo();
     S.digitsDone += 1;
-    const last = S.step >= p.steps.length;
+    const last = complete(p, S.cursor);
     if (last) { S.ready = false; S.qMs = now() - S.qStart; }
     S.shownWrong = null;
     cell.classList.remove('bad', 'active', 'has', 'pre');
@@ -519,7 +522,7 @@ function press(key, btn = padButtons[key]) {
     cell.textContent = key;
     bumpDopa(cell);
     carry(from, cell, key, () => { cell.classList.remove('pending'); onCorrect(st, cell, last); });
-    if (!last) activate(S.step);
+    if (!last) activate();
   } else {
     breakCombo();
     S.wrongInQ = true;
@@ -542,7 +545,8 @@ function carry(from, cell, digit, done) {
 
 function erase() {
   if (!S.shownWrong || !S.problem) return;
-  const st = S.problem.steps[S.step];
+  const st = stepAt(S.problem, S.cursor);
+  if (!st) return;
   const cell = S.cells[st.cell];
   // A find-error cell goes back to the wrong digit it started from.
   const def = S.problem.cells.find((c) => c.id === st.cell);
@@ -642,7 +646,7 @@ function onWrong(cell, st) {
 // Repeated slips on the same digit: 2nd highlights the digits to look at
 // and Dopakichi points there; 3rd also spells out the sub-calculation.
 function giveHelp(st) {
-  if (!st || !st.help || S.problem.steps[S.step] !== st) return;
+  if (!st || !st.help || stepAt(S.problem, S.cursor) !== st) return;
   const n = S.stepMisses;
   if (n < 2) return;
   const els = st.help.ids.map((id) => S.cells[id]).filter((el) => el && !el.classList.contains('hidden'));
@@ -907,8 +911,9 @@ function bumpDopa(cell) {
   const prev = S.dopa.L;
   const n = S.problem.steps.length;
   // No-combo step for this answer cell; the combo scales it up a little.
+  const done = filled(S.problem, S.cursor);
   const base = S.mode === 'extra' ? extraProblemGain(S.extra.solved) / n
-    : basicDopaL((S.qi + S.step / n) / S.N) - basicDopaL((S.qi + (S.step - 1) / n) / S.N);
+    : basicDopaL((S.qi + done / n) / S.N) - basicDopaL((S.qi + (done - 1) / n) / S.N);
   S.dopa.L = addDopa(prev, base, S.combo);
   const E = S.E;
   if (E > 0.12 && !S.reduced) {
@@ -1325,7 +1330,7 @@ function stopDemo() {
 function demoTick(t) {
   if (!S.demo) return;
   if (S.screen === 'play' && S.ready && t > DEMO.next && S.problem) {
-    const st = S.problem.steps[S.step];
+    const st = stepAt(S.problem, S.cursor);
     if (!st) return;
     // Keep slips rare enough in the basic set that the extra stage still unlocks.
     const room = S.mode === 'extra' || S.wrongInQ || (DEMO.slipped || 0) < Math.floor(S.N * 0.2);
@@ -1571,7 +1576,8 @@ onFrame((dt, t) => {
       const x = clamp(r.left + r.width / 2 + rand(-0.28, 0.28) * r.width, r.left + 50, r.right - 50);
       hero.hop(20 + 40 * S.E, 420, { to: { x, y: hero.home.y }, spin: S.E > 0.6 && chance(0.3) ? 360 : 0 }).then((ok) => { if (ok) hero.x = x; });
     }
-    const target = S.problem && S.problem.steps[S.step] ? S.cells[S.problem.steps[S.step].cell] : null;
+    const cur = S.problem && stepAt(S.problem, S.cursor);
+    const target = cur ? S.cells[cur.cell] : null;
     if (target && !hero.hands.some((h) => h.job)) hero.lookAt(centerOf(target));
   }
 
@@ -2633,7 +2639,7 @@ addEventListener('keydown', (e) => {
   if (e.key === 'Escape' && S.screen !== 'title') { e.preventDefault(); askToTitle(); return; }
   if (/^[0-9]$/.test(e.key)) {
     audio.unlock();
-    const st = S.problem && S.problem.steps[S.step];
+    const st = S.problem && stepAt(S.problem, S.cursor);
     if (st && !/^[0-9]$/.test(st.digit)) {
       // Symbol questions show no digits: 1..n picks the n-th key of that pad.
       const keys = Object.keys(padButtons).filter((k) => k !== 'Backspace');
