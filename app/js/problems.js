@@ -1868,12 +1868,17 @@ function finalize(p) {
 // digits, so blanking one dividend digit would be answered in several places.
 export const STYLE_KINDS = new Set(['add', 'sub', 'mul']);
 
+// The digit-puzzle form is add/sub only, for the same reason plus one more:
+// a multiplication's partial products read the operand digits off directly.
+export const PUZZLE_KINDS = new Set(['add', 'sub']);
+
 const isDigitCell = (c) => c.kind === 'given' && /^[0-9]$/.test(c.text);
 const pickIdx = (rng, n) => Math.min(n - 1, Math.floor(rng() * n));
 
 export function applyStyle(p, style, rng) {
   if (style === 'missing') return asMissing(p, rng);
   if (style === 'find-error') return asFindError(p, rng);
+  if (style === 'puzzle') return asPuzzle(p, rng);
   return null;
 }
 
@@ -1891,6 +1896,7 @@ function asMissing(p, rng) {
   // Show the finished working so the blank can be deduced.
   for (const c of answers) c.kind = 'given';
   target.kind = 'input';
+  target.ph = '□';
   q.showAll = true;
   q.preMarks = removed.flatMap((s) => s.marks || []);
   q.steps = [{ cell: target.id, digit: target.text, label: '填一填', after: [], help: null }];
@@ -1918,12 +1924,57 @@ function asFindError(p, rng) {
   return q;
 }
 
-// Pick a question form for one problem. Falls back to the direct question when
-// the layout does not support the chosen style.
-export function styleProblem(p, rng, chance = 0.28) {
+// Pick a question form for one problem. Integer add/sub columns get all three
+// re-asks; everything else only find-error (mul reveals operand digits in its
+// partial products, decimals need the point alignment to read a blank back).
+export function styleProblem(p, rng, chance = 0.3) {
   if (rng() >= chance) return p;
-  const style = rng() < 0.5 ? 'missing' : 'find-error';
-  return applyStyle(p, style, rng) || p;
+  const decimal = p.cells.some((c) => c.text === '.');
+  const pool = PUZZLE_KINDS.has(p.kind) && !decimal
+    ? ['missing', 'find-error', 'puzzle', 'puzzle']
+    : ['find-error'];
+  return applyStyle(p, pickOf(rng, pool), rng) || p;
+}
+
+// 数字谜: a finished addition or subtraction with 2-4 digits blanked, at most
+// one per column. That last rule is what makes the solution unique without a
+// solver: walking right to left, the carry into a column is always known and
+// exactly one of {a, b, result} is unknown there, and the two candidate
+// values (carry 0 or 1) differ by 10 — only one fits in 0..9. Carries and
+// borrow marks stay hidden on purpose; working them out is the exercise.
+function asPuzzle(p, rng) {
+  if (!PUZZLE_KINDS.has(p.kind)) return null;
+  if (p.cells.some((c) => c.text === '.')) return null;
+  const q = structuredClone(p);
+  const byCol = new Map();
+  for (const c of q.cells) {
+    if (!((c.kind === 'given' || c.kind === 'input') && /^[0-9]$/.test(c.text))) continue;
+    if (!byCol.has(c.c)) byCol.set(c.c, []);
+    byCol.get(c.c).push(c);
+  }
+  const cols = [...byCol.keys()];
+  if (cols.length < 2) return null;
+  const want = Math.min(pickOf(rng, [2, 3, 3, 4]), cols.length);
+  for (let i = cols.length - 1; i > 0; i -= 1) {
+    const j = Math.floor(rng() * (i + 1));
+    [cols[i], cols[j]] = [cols[j], cols[i]];
+  }
+  const blanks = cols.slice(0, want).map((c) => pickOf(rng, byCol.get(c)));
+  const ids = new Set(blanks.map((b) => b.id));
+  for (const c of q.cells) {
+    if (ids.has(c.id)) { c.kind = 'input'; c.ph = '□'; }
+    else if (c.kind === 'input') c.kind = 'given';
+  }
+  // Units first, the order the column algorithm runs in.
+  q.steps = blanks
+    .slice()
+    .sort((a, b) => b.c - a.c)
+    .map((b) => ({ cell: b.id, digit: b.text, label: PLACE[q.cols - 1 - b.c] || '高位', after: [], help: null }));
+  q.free = true;
+  q.puzzle = { blanks: blanks.length };
+  q.style = 'puzzle';
+  q.title = `${q.title}（数字谜）`;
+  return q;
 }
 
 // ================================================================ legacy templates (fixed basic set)

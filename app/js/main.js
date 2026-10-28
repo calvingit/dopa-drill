@@ -369,7 +369,7 @@ function fitSheet(p) {
   sheet.style.setProperty('--ch', `${ch.toFixed(1)}px`);
 }
 
-function activate() {
+function activate(rearm = true) {
   const p = S.problem;
   $$('.cell.active').forEach((c) => { c.classList.remove('active', 'has'); c.removeAttribute('aria-current'); });
   const st = stepAt(p, S.cursor);
@@ -387,7 +387,8 @@ function activate() {
     }
   }
   S.stepMisses = 0;
-  armCombo(filled(p, S.cursor) === 0);
+  // Re-arming on every focus change would let tapping reset the combo clock.
+  if (rearm) armCombo(filled(p, S.cursor) === 0);
   $$('.cell.hint-glow').forEach((c) => c.classList.remove('hint-glow'));
   $('#step-label').innerHTML = `<b>${st.label}</b>${st.hint ? `　${st.hint}` : ''}`;
   const done = filled(p, S.cursor);
@@ -520,6 +521,7 @@ function press(key, btn = padButtons[key]) {
     cell.classList.remove('bad', 'active', 'has', 'pre');
     cell.classList.add('ok', 'pending');
     cell.textContent = key;
+    delete cell.dataset.ph;
     bumpDopa(cell);
     carry(from, cell, key, () => { cell.classList.remove('pending'); onCorrect(st, cell, last); });
     if (!last) activate();
@@ -532,6 +534,7 @@ function press(key, btn = padButtons[key]) {
     updateTally();
     cell.classList.add('bad', 'has', 'pending');
     cell.textContent = key;
+    delete cell.dataset.ph;
     S.shownWrong = key;
     carry(from, cell, key, () => { cell.classList.remove('pending'); onWrong(cell, st); });
   }
@@ -553,6 +556,7 @@ function erase() {
   cell.textContent = def && def.pre ? def.pre : '';
   cell.classList.remove('bad', 'has', 'pending');
   if (def && def.pre) cell.classList.add('pre', 'has');
+  if (def && def.ph) cell.dataset.ph = def.ph; else cell.removeAttribute('data-ph');
   S.shownWrong = null;
   audio.erase();
   const c = centerOf(cell);
@@ -2623,6 +2627,16 @@ for (const el of [pad, padSym]) {
     if (b && el.contains(b) && e.detail === 0) press(b.dataset.key, b);
   });
 }
+
+// Free-order questions (digit puzzles): tap a blank to fill it next. Moving on
+// drops a pending wrong digit, exactly as Backspace would.
+sheet.addEventListener('pointerdown', (e) => {
+  const d = e.target.closest('.cell.input');
+  if (!d || !S.problem || !S.problem.free || S.screen !== 'play') return;
+  if (S.shownWrong) erase();
+  const next = focusCell(S.problem, S.cursor, d.dataset.id);
+  if (next !== S.cursor) { S.cursor = next; activate(false); }
+});
 addEventListener('keydown', (e) => {
   if (guide.keydown(e)) return;
   if (e.repeat || e.ctrlKey || e.metaKey || e.altKey) return;

@@ -9,7 +9,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
   makeRng, makeProblem, applyStyle, styleProblem, signature,
-  ANSWER_RE, STYLE_KINDS, _internal,
+  ANSWER_RE, STYLE_KINDS, PUZZLE_KINDS, _internal,
 } from '../app/js/problems.js';
 import { SKILLS } from '../app/js/skills.js';
 
@@ -17,12 +17,12 @@ const { GEN } = _internal;
 
 const calc = (op, a, b) => (op === '＋' ? a + b : op === '−' ? a - b : a * b);
 
-// Rebuild the number in row r, optionally replacing one cell's digit.
-function rowNumber(p, r, swap = null) {
+// Rebuild the number in row r, replacing any cell listed in `overrides`.
+function rowNumber(p, r, overrides = {}) {
   const digits = p.cells
     .filter((c) => c.r === r && /^[0-9]$/.test(c.text))
     .sort((x, y) => x.c - y.c)
-    .map((c) => (swap && swap.id === c.id ? swap.digit : c.text))
+    .map((c) => (c.id in overrides ? overrides[c.id] : c.text))
     .join('');
   return Number(digits);
 }
@@ -214,9 +214,8 @@ test('missing: one blank, uniquely determined, the rest untouched', () => {
       const want = Number(p.answer);
       let solutions = 0;
       for (let d = 0; d <= 9; d += 1) {
-        const swap = { id: target.id, digit: String(d) };
-        const a = rowNumber(q, 1, swap);
-        const b = rowNumber(q, 2, swap);
+        const a = rowNumber(q, 1, { [target.id]: String(d) });
+        const b = rowNumber(q, 2, { [target.id]: String(d) });
         const got = p.kind === 'add' ? a + b : p.kind === 'sub' ? a - b : a * b;
         if (got === want) solutions += 1;
       }
@@ -265,6 +264,54 @@ test('find-error: exactly one corrupted digit, everything else exact', () => {
   assert.ok(seen >= 400, `only ${seen} find-error samples`);
 });
 
+test('puzzle: several blanks, at most one per column, uniquely solvable', () => {
+  const rng = makeRng(43);
+  let seen = 0;
+  for (const sk of SKILLS) {
+    for (let i = 0; i < 4; i += 1) {
+      const p = makeProblem(sk.id, rng);
+      const q = applyStyle(p, 'puzzle', rng);
+      if (!q) {
+        const hasPoint = p.cells.some((c) => c.text === '.');
+        assert.ok(!(PUZZLE_KINDS.has(p.kind) && !hasPoint), `${sk.id} ${p.text}: should support puzzle`);
+        continue;
+      }
+      seen += 1;
+      const inputs = q.cells.filter((c) => c.kind === 'input');
+      assert.equal(inputs.length, q.steps.length, `${sk.id} ${p.text}`);
+      assert.ok(inputs.length >= 2 && inputs.length <= 4, `${sk.id} ${p.text}: ${inputs.length} blanks`);
+      assert.equal(q.free, true, sk.id);
+      assert.equal(q.puzzle.blanks, inputs.length, sk.id);
+
+      // One blank per column is the whole uniqueness argument — enforce it.
+      const cols = inputs.map((c) => c.c);
+      assert.equal(new Set(cols).size, cols.length, `${sk.id} ${p.text}: two blanks share a column`);
+
+      // Nothing else moved.
+      assert.deepEqual(q.cells.map((c) => c.id), p.cells.map((c) => c.id), sk.id);
+      for (const c of q.cells) assert.equal(c.text, p.cells.find((x) => x.id === c.id).text, `${sk.id} ${c.id}`);
+      assert.equal(q.answer, p.answer, sk.id);
+
+      // Brute force: exactly one assignment reproduces the arithmetic.
+      const rows = [1, 2, 3].map((r) => q.cells
+        .filter((c) => c.r === r && /^[0-9]$/.test(c.text))
+        .sort((a, b) => a.c - b.c));
+      const value = (r, ov) => Number(rows[r - 1].map((c) => (c.id in ov ? ov[c.id] : c.text)).join(''));
+      let solutions = 0;
+      const total = 10 ** inputs.length;
+      for (let v = 0; v < total; v += 1) {
+        const ov = {};
+        let rest = v;
+        for (const b of inputs) { ov[b.id] = String(rest % 10); rest = Math.floor(rest / 10); }
+        const a = value(1, ov); const b = value(2, ov); const r = value(3, ov);
+        if ((p.kind === 'add' ? a + b : a - b) === r) solutions += 1;
+      }
+      assert.equal(solutions, 1, `${sk.id} ${p.text}: ${solutions} assignments fit`);
+    }
+  }
+  assert.ok(seen >= 30, `only ${seen} puzzle samples`);
+});
+
 test('makeProblem takes a style, and an unsupported one falls back to direct', () => {
   const a = makeProblem('g2-vadd2-c', makeRng(7), null, 'missing');
   const b = makeProblem('g2-vadd2-c', makeRng(7), null, 'missing');
@@ -286,12 +333,13 @@ test('styleProblem is deterministic and only ever yields a valid form', () => {
   for (let i = 0; i < 200; i += 1) {
     const p = makeProblem('g2-vadd2-c', rng);
     const q = styleProblem(p, rng);
-    assert.ok(!q.style || q.style === 'missing' || q.style === 'find-error', q.style);
+    assert.ok(!q.style || ['missing', 'find-error', 'puzzle'].includes(q.style), q.style);
     // A restyled question always leaves exactly one cell to fill.
     if (q.style) {
       styled += 1;
-      assert.equal(q.cells.filter((c) => c.kind === 'input').length, 1, `${q.title} ${q.text}`);
-      assert.equal(q.steps.length, 1, `${q.title} ${q.text}`);
+      const n = q.cells.filter((c) => c.kind === 'input').length;
+      assert.equal(n, q.steps.length, `${q.title} ${q.text}`);
+      assert.ok(q.style === 'puzzle' ? n >= 2 : n === 1, `${q.style} with ${n} cells`);
     } else {
       assert.equal(q, p);
     }
