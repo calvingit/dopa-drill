@@ -1820,6 +1820,74 @@ const GEN = {
       calc: { terms, rule, blank: 3 },
     });
   },
+
+  // 字母算式: a column sum wearing letters. Every cell with the same letter
+  // takes the same digit — that is the whole puzzle. Three shapes, each pinned
+  // by construction so no solver is needed at generation time:
+  //   AB − A ＝ R   9A ＋ B ＝ R, and B ≥ 1 keeps the split unique
+  //   AA ＋ B ＝ R   11A ＋ B ＝ R has at most one A with B in 0..9
+  //   Au ＋ tA ＝ R  11A ＝ R − 10t − u has at most one A
+  // The tests brute-force every letter map anyway. A letter never shares a
+  // digit with a printed one, so no printed digit gives the answer away, and
+  // different letters never share a digit (the school convention).
+  letterSum(rng) {
+    const r = R(rng);
+    for (let g = 0; g < 300; g += 1) {
+      const shape = r(0, 2);
+      let a; let b; let op; let letters; let text; let printed;
+      if (shape === 0) {
+        const A = r(2, 9); const B = r(1, 9);
+        if (A === B) continue;
+        a = A * 10 + B; b = A; op = '−';
+        letters = [{ name: 'A', digit: A }, { name: 'B', digit: B }];
+        text = 'AB − A'; printed = [];
+      } else if (shape === 1) {
+        const A = r(2, 8); const B = r(1, 9);
+        if (A === B) continue;
+        a = A * 11; b = B; op = '＋';
+        letters = [{ name: 'A', digit: A }, { name: 'B', digit: B }];
+        text = 'AA ＋ B'; printed = [];
+      } else {
+        const A = r(1, 5); const t = r(1, 4); const u = r(0, 9);
+        if (A === t || A === u) continue;
+        a = A * 10 + u; b = t * 10 + A; op = '＋';
+        if (a + b > 99) continue;
+        letters = [{ name: 'A', digit: A }];
+        text = `A${u} ＋ ${t}A`; printed = [t, u];
+      }
+      const R = op === '−' ? a - b : a + b;
+      // A letter never repeats a printed digit, letters never repeat each
+      // other; the result is never a letter, so it can be printed in full.
+      const banned = [...printed, ...String(R).split('').map(Number)];
+      if (letters.some((L) => banned.includes(L.digit))) continue;
+      if (new Set(letters.map((L) => L.digit)).size !== letters.length) continue;
+
+      const q = structuredClone(op === '−' ? buildSub(a, b) : buildAdd(a, b));
+      const byDigit = new Map(letters.map((L) => [L.digit, L.name]));
+      const letterCells = [];
+      for (const c of q.cells) {
+        // Carry/mark cells are derived, never part of the puzzle.
+        if (c.kind !== 'given' && c.kind !== 'input') continue;
+        if (!/^[0-9]$/.test(c.text)) continue;
+        const name = byDigit.get(Number(c.text));
+        if (!name) { if (c.kind === 'input') c.kind = 'given'; continue; }
+        c.letter = name;
+        letterCells.push(c);
+      }
+      letterCells.sort((x, y) => x.r - y.r || x.c - y.c);
+      for (const c of letterCells) { c.kind = 'input'; c.ph = c.letter; }
+      q.steps = letterCells.map((c) => ({ cell: c.id, digit: c.text, label: `字母${c.letter}`, after: [], help: null }));
+      q.free = true;
+      q.letters = Object.fromEntries(letters.map((L) => [L.name, String(L.digit)]));
+      q.title = '字母算式';
+      q.text = `${text} ＝ ${R}`;
+      q.answer = q.steps.map((s) => s.digit).join('');
+      q.answerText = `${text} ＝ ${R}（${letters.map((L) => `${L.name}＝${L.digit}`).join('、')}）`;
+      q.calc = { shape, a, b, op, R, letters: Object.fromEntries(letters.map((L) => [L.name, L.digit])) };
+      return q;
+    }
+    throw new Error('letterSum');
+  },
 };
 
 // Signature used to avoid repeats.
@@ -1876,6 +1944,9 @@ const isDigitCell = (c) => c.kind === 'given' && /^[0-9]$/.test(c.text);
 const pickIdx = (rng, n) => Math.min(n - 1, Math.floor(rng() * n));
 
 export function applyStyle(p, style, rng) {
+  // Letter puzzles are already their own question; wrapping them again would
+  // corrupt both the letter cells and the arithmetic checks.
+  if (p.letters) return null;
   if (style === 'missing') return asMissing(p, rng);
   if (style === 'find-error') return asFindError(p, rng);
   if (style === 'puzzle') return asPuzzle(p, rng);
@@ -1930,7 +2001,7 @@ function asFindError(p, rng) {
 export function styleProblem(p, rng, chance = 0.3) {
   if (rng() >= chance) return p;
   const decimal = p.cells.some((c) => c.text === '.');
-  const pool = PUZZLE_KINDS.has(p.kind) && !decimal
+  const pool = PUZZLE_KINDS.has(p.kind) && !decimal && !p.letters
     ? ['missing', 'find-error', 'puzzle', 'puzzle']
     : ['find-error'];
   return applyStyle(p, pickOf(rng, pool), rng) || p;

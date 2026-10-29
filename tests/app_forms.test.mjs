@@ -189,8 +189,9 @@ test('missing: one blank, uniquely determined, the rest untouched', () => {
       const p = makeProblem(sk.id, rng);
       const q = applyStyle(p, 'missing', rng);
       if (!q) {
+        // Letter puzzles are their own question and take no transform.
         const hasPoint = p.cells.some((c) => c.text === '.');
-        assert.ok(!(STYLE_KINDS.has(p.kind) && !hasPoint), `${sk.id} ${p.text}: should support missing`);
+        assert.ok(!(STYLE_KINDS.has(p.kind) && !hasPoint && !p.letters), `${sk.id} ${p.text}: should support missing`);
         continue;
       }
       seen += 1;
@@ -233,8 +234,9 @@ test('find-error: exactly one corrupted digit, everything else exact', () => {
       const p = makeProblem(sk.id, rng);
       const q = applyStyle(p, 'find-error', rng);
       if (!q) {
-        // Only a problem without any numeric input cell can refuse.
-        assert.ok(!p.cells.some((c) => c.kind === 'input' && /^[0-9]$/.test(c.text)), `${sk.id} ${p.text}`);
+        // Only a problem without any numeric input cell can refuse; letter
+        // puzzles take no transform at all.
+        assert.ok(p.letters || !p.cells.some((c) => c.kind === 'input' && /^[0-9]$/.test(c.text)), `${sk.id} ${p.text}`);
         continue;
       }
       seen += 1;
@@ -273,7 +275,7 @@ test('puzzle: several blanks, at most one per column, uniquely solvable', () => 
       const q = applyStyle(p, 'puzzle', rng);
       if (!q) {
         const hasPoint = p.cells.some((c) => c.text === '.');
-        assert.ok(!(PUZZLE_KINDS.has(p.kind) && !hasPoint), `${sk.id} ${p.text}: should support puzzle`);
+        assert.ok(!(PUZZLE_KINDS.has(p.kind) && !hasPoint && !p.letters), `${sk.id} ${p.text}: should support puzzle`);
         continue;
       }
       seen += 1;
@@ -310,6 +312,66 @@ test('puzzle: several blanks, at most one per column, uniquely solvable', () => 
     }
   }
   assert.ok(seen >= 30, `only ${seen} puzzle samples`);
+});
+
+test('letterSum: same letter, same digit, and the map is unique', () => {
+  const rng = makeRng(45);
+  const shapes = new Set();
+  let seen = 0;
+  for (let i = 0; i < 400; i += 1) {
+    const q = GEN.letterSum(rng);
+    const c = q.calc;
+    shapes.add(c.shape);
+    seen += 1;
+    // The recorded arithmetic reproduces the printed result.
+    assert.equal(c.op === '−' ? c.a - c.b : c.a + c.b, c.R, q.text);
+    // Each letter's value differs from every printed digit and from the others.
+    const printed = [...String(c.R).split('').map(Number)];
+    if (c.shape === 2) printed.push(Number(q.text.match(/＋ (\d)A/)[1]), Number(q.text.match(/A(\d) ＋/)[1]));
+    for (const [name, digit] of Object.entries(c.letters)) {
+      assert.ok(!printed.includes(digit), `${q.text}: ${name}＝${digit} is printed`);
+      for (const [other, odigit] of Object.entries(c.letters)) {
+        if (other !== name) assert.notEqual(digit, odigit, q.text);
+      }
+    }
+    // One input cell per letter occurrence, all expecting the letter's digit.
+    const letterCells = q.cells.filter((x) => x.letter);
+    assert.equal(q.steps.length, letterCells.length, q.text);
+    assert.equal(q.free, true, q.text);
+    for (const st of q.steps) {
+      const cell = q.cells.find((x) => x.id === st.cell);
+      assert.equal(st.digit, q.letters[cell.letter], q.text);
+      assert.equal(cell.kind, 'input', q.text);
+      assert.equal(cell.ph, cell.letter, q.text);
+    }
+    // Everything without a letter is printed.
+    for (const x of q.cells) {
+      if (x.letter) continue;
+      assert.ok(x.kind !== 'input', `${q.text}: ${x.id} should be printed`);
+    }
+
+    // Brute force: exactly one letter map reproduces the printed result.
+    const names = Object.keys(q.letters);
+    const rows = [1, 2, 3].map((r) => q.cells
+      .filter((x) => x.r === r && /^[0-9]$/.test(x.text))
+      .sort((p1, p2) => p1.c - p2.c));
+    const value = (r, ov) => Number(rows[r - 1].map((x) => (x.id in ov ? ov[x.id] : x.text)).join(''));
+    let solutions = 0;
+    for (let v = 0; v < 10 ** names.length; v += 1) {
+      const ov = {};
+      let rest = v;
+      for (const n of names) {
+        const d = rest % 10;
+        rest = (rest - d) / 10;
+        for (const x of letterCells) if (x.letter === n) ov[x.id] = String(d);
+      }
+      const a = value(1, ov); const b = value(2, ov); const res = value(3, ov);
+      if ((c.op === '−' ? a - b : a + b) === res) solutions += 1;
+    }
+    assert.equal(solutions, 1, `${q.text}: ${solutions} letter maps fit`);
+  }
+  assert.ok(seen === 400, seen);
+  assert.deepEqual([...shapes].sort().map(Number), [0, 1, 2]);
 });
 
 test('makeProblem takes a style, and an unsupported one falls back to direct', () => {

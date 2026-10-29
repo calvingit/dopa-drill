@@ -87,6 +87,9 @@ export const SKILLS = [
   { id: 'g4-eq-2', name: '解方程（两步）', grade: 4, lane: 3, req: ['g4-eq-1'], gen: ['eq', { twoStep: true }] },
   { id: 'g4-round', name: '近似数（四舍五入）', grade: 4, lane: 3, req: ['g3-vadd4'], gen: ['round', {}] },
   { id: 'g4-rewrite', name: '大数改写', grade: 4, lane: 3, req: ['g3-vadd4'], gen: ['rewrite', {}] },
+  // Question-form axis: same letter, same digit, in a column sum. Needs solid
+  // column add/sub with borrowing; the letter itself is the 四下 topic.
+  { id: 'g4-letter-sum', name: '字母算式', grade: 4, lane: 3, req: ['g3-vadd3', 'g3-vsub3'], gen: ['letterSum', {}] },
   { id: 'g4-dec-add2', name: '两位小数加减', grade: 4, lane: 2, req: ['g3-dec-sub1'], gen: ['vdec', { op: 'addsub', places: 2, intMinuend: true }] },
   { id: 'g4-dec-mix', name: '小数加减混合', grade: 4, lane: 2, req: ['g4-dec-add2'], gen: ['dec3', {}] },
   { id: 'g4-dec-mul', name: '小数乘整数', grade: 4, lane: 2, req: ['g4-dec-add2', 'g3-vmul-2x1'], gen: ['vmul', { da: [1, 2], db: 1, pa: 1, subOne: true }] },

@@ -40,6 +40,14 @@ function checkLayout(p) {
 
 function checkAnswer(p) {
   const typed = p.steps.map((s) => s.digit).join('');
+  // Letter puzzles: every cell wearing the same letter expects the same digit.
+  if (p.letters) {
+    for (const st of p.steps) {
+      const cell = p.cells.find((c) => c.id === st.cell);
+      assert.equal(st.digit, p.letters[cell.letter], `${p.skill} ${p.text}: ${cell.id}`);
+    }
+    return;
+  }
   if (p.kind === 'add' || p.kind === 'sub' || p.kind === 'mul') {
     const row = Math.max(...p.steps.map((s) => p.cells.find((c) => c.id === s.cell).r));
     const res = p.cells.filter((c) => c.r === row && c.kind === 'input').sort((a, b) => a.c - b.c).map((c) => c.text).join('');
